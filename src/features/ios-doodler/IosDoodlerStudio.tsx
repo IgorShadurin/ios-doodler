@@ -52,9 +52,7 @@ import { clearIosDoodlerState, loadIosDoodlerState, saveIosDoodlerState, type Io
 import { DEFAULT_STUDIO_LANGUAGE, STUDIO_LANGUAGES } from '@/features/ios-doodler/languages';
 import {
   computeCropRect,
-  getCropAnchorsForAspectMismatch,
   hasMatchingAspectRatio,
-  type CropAnchor,
 } from '@/features/ios-doodler/image-fit';
 import {
   parseTranslationsImportJson,
@@ -121,6 +119,38 @@ type PendingLabelDragUpdate = {
   rotation?: number;
 };
 
+type CropRectPx = {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+};
+
+type CropDragState = {
+  pointerId: number;
+  handle: CropResizeHandle;
+  startClientX: number;
+  startClientY: number;
+  pointerCaptureTarget: HTMLElement | null;
+  sourceWidth: number;
+  sourceHeight: number;
+  targetRatio: number;
+  startRect: CropRectPx;
+  previewWidth: number;
+  previewHeight: number;
+};
+
+type CropResizeHandle =
+  | 'move'
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'bottom'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right';
+
 type ResizeEdge =
   | 'left'
   | 'right'
@@ -139,8 +169,7 @@ type PendingImageUpload = {
   sourceAsset: TemplateAsset;
   targetWidth: number;
   targetHeight: number;
-  anchorOptions: CropAnchor[];
-  selectedAnchor: CropAnchor;
+  cropRect: CropRectPx;
 };
 
 const LEGACY_STORAGE_KEY = 'ios-doodler-studio-v3';
@@ -187,19 +216,134 @@ function toPngFileName(fileName: string): string {
   return `${fileName.slice(0, dotIndex)}.png`;
 }
 
-function formatCropAnchorLabel(anchor: CropAnchor): string {
-  switch (anchor) {
-    case 'left':
-      return 'Left';
-    case 'right':
-      return 'Right';
-    case 'top':
-      return 'Top';
-    case 'bottom':
-      return 'Bottom';
-    default:
-      return 'Center';
+function cropRectPxToPreview(rect: CropRectPx, sourceWidth: number, sourceHeight: number) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return { left: 0, top: 0, width: 100, height: 100 };
   }
+  return {
+    left: (rect.sx / sourceWidth) * 100,
+    top: (rect.sy / sourceHeight) * 100,
+    width: (rect.sw / sourceWidth) * 100,
+    height: (rect.sh / sourceHeight) * 100,
+  };
+}
+
+function clampCropRectByRatio(
+  rect: CropRectPx,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRatio: number,
+): CropRectPx {
+  const minWidth = Math.max(28, Math.min(sourceWidth, sourceHeight * targetRatio, sourceWidth * 0.08));
+  const minHeight = Math.max(28, Math.min(sourceHeight, sourceWidth / targetRatio, sourceHeight * 0.08));
+  const currentRatio = rect.sw > 0 && rect.sh > 0 ? rect.sw / rect.sh : targetRatio;
+  const isWide = currentRatio >= targetRatio;
+  const safeRect = { ...rect };
+
+  if (isWide) {
+    safeRect.sw = Math.max(minWidth, Math.min(safeRect.sw, sourceWidth));
+    safeRect.sh = safeRect.sw / targetRatio;
+  } else {
+    safeRect.sh = Math.max(minHeight, Math.min(safeRect.sh, sourceHeight));
+    safeRect.sw = safeRect.sh * targetRatio;
+  }
+
+  if (safeRect.sh > sourceHeight) {
+    safeRect.sh = sourceHeight;
+    safeRect.sw = safeRect.sh * targetRatio;
+  }
+  if (safeRect.sw > sourceWidth) {
+    safeRect.sw = sourceWidth;
+    safeRect.sh = safeRect.sw / targetRatio;
+  }
+
+  safeRect.sw = Math.max(1, Math.min(safeRect.sw, sourceWidth));
+  safeRect.sh = Math.max(1, Math.min(safeRect.sh, sourceHeight));
+  safeRect.sx = Math.max(0, Math.min(safeRect.sx, sourceWidth - safeRect.sw));
+  safeRect.sy = Math.max(0, Math.min(safeRect.sy, sourceHeight - safeRect.sh));
+
+  return safeRect;
+}
+
+function rotateCropRectByHandle(
+  rect: CropRectPx,
+  sourceWidth: number,
+  sourceHeight: number,
+  targetRatio: number,
+  handle: CropResizeHandle,
+  deltaX: number,
+  deltaY: number,
+): CropRectPx {
+  if (deltaX === 0 && deltaY === 0) return rect;
+
+  const hasLeft = handle.includes('left');
+  const hasRight = handle.includes('right');
+  const hasTop = handle.includes('top');
+  const hasBottom = handle.includes('bottom');
+  const resizeHoriz = hasLeft || hasRight;
+  const resizeVert = hasTop || hasBottom;
+
+  let nextWidth = rect.sw;
+  let nextHeight = rect.sh;
+
+  if (resizeHoriz && !resizeVert) {
+    nextWidth = rect.sw + (hasRight ? deltaX : -deltaX);
+  } else if (resizeVert && !resizeHoriz) {
+    nextHeight = rect.sh + (hasBottom ? deltaY : -deltaY);
+  } else if (resizeHoriz && resizeVert) {
+    const absDeltaX = Math.abs(deltaX);
+    const absDeltaY = Math.abs(deltaY);
+    if (absDeltaX >= absDeltaY) {
+      nextWidth = rect.sw + (hasRight ? deltaX : -deltaX);
+    } else {
+      nextHeight = rect.sh + (hasBottom ? deltaY : -deltaY);
+    }
+  } else {
+    return rect;
+  }
+
+  nextWidth = Math.max(1, nextWidth);
+  nextHeight = Math.max(1, nextHeight);
+  if (nextWidth > sourceWidth) nextWidth = sourceWidth;
+  if (nextHeight > sourceHeight) nextHeight = sourceHeight;
+
+  if (resizeHoriz && !resizeVert) {
+    nextHeight = nextWidth / targetRatio;
+  } else {
+    nextWidth = nextHeight * targetRatio;
+  }
+
+  const next: CropRectPx = {
+    sw: nextWidth,
+    sh: nextHeight,
+    sx: rect.sx,
+    sy: rect.sy,
+  };
+
+  if (hasLeft) {
+    next.sx = rect.sx + rect.sw - next.sw;
+  }
+  if (hasTop) {
+    next.sy = rect.sy + rect.sh - next.sh;
+  }
+
+  if (!resizeHoriz && !resizeVert) {
+    return rect;
+  }
+
+  return clampCropRectByRatio(next, sourceWidth, sourceHeight, targetRatio);
+}
+
+function createSlotsFromImport(textByLanguage: Record<string, Record<string, string>>): TemplateSlot[] {
+  const first = createEmptySlot(1);
+  const normalized = Object.fromEntries(
+    Object.entries(textByLanguage).map(([code, values]) => [
+      code,
+      Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value])),
+    ]),
+  );
+  first.textByLanguage = normalized;
+  return [first];
 }
 
 function orderLanguageCodes(codes: string[]): string[] {
@@ -294,7 +438,7 @@ async function fitAssetToTarget(
   sourceAsset: TemplateAsset,
   targetWidth: number,
   targetHeight: number,
-  anchor: CropAnchor,
+  cropRect?: CropRectPx,
 ): Promise<TemplateAsset> {
   const image = await loadImage(sourceAsset.src);
   const canvas = document.createElement('canvas');
@@ -306,20 +450,40 @@ async function fitAssetToTarget(
     throw new Error('failed to create canvas context');
   }
 
-  const cropRect = computeCropRect(
+  const resolvedCropRect = cropRect ?? computeCropRect(
     sourceAsset.width,
     sourceAsset.height,
     targetWidth,
     targetHeight,
-    anchor,
+    'center',
   );
+
+  const safeCropRect = {
+    sx: clamp01(resolvedCropRect.sx / sourceAsset.width) * sourceAsset.width,
+    sy: clamp01(resolvedCropRect.sy / sourceAsset.height) * sourceAsset.height,
+    sw: clamp01(resolvedCropRect.sw / sourceAsset.width) * sourceAsset.width,
+    sh: clamp01(resolvedCropRect.sh / sourceAsset.height) * sourceAsset.height,
+  };
+  const finalRect = {
+    sx: Math.max(0, Math.min(safeCropRect.sx, sourceAsset.width)),
+    sy: Math.max(0, Math.min(safeCropRect.sy, sourceAsset.height)),
+    sw: Math.max(1, Math.min(safeCropRect.sw, sourceAsset.width)),
+    sh: Math.max(1, Math.min(safeCropRect.sh, sourceAsset.height)),
+  };
+
+  if (finalRect.sx + finalRect.sw > sourceAsset.width) {
+    finalRect.sx = Math.max(0, sourceAsset.width - finalRect.sw);
+  }
+  if (finalRect.sy + finalRect.sh > sourceAsset.height) {
+    finalRect.sy = Math.max(0, sourceAsset.height - finalRect.sh);
+  }
 
   context.drawImage(
     image,
-    cropRect.sx,
-    cropRect.sy,
-    cropRect.sw,
-    cropRect.sh,
+    finalRect.sx,
+    finalRect.sy,
+    finalRect.sw,
+    finalRect.sh,
     0,
     0,
     targetWidth,
@@ -334,6 +498,24 @@ async function fitAssetToTarget(
     mimeType: 'image/png',
     fileName: toPngFileName(sourceAsset.fileName),
   };
+}
+
+function buildDefaultCropRect(
+  sourceAsset: TemplateAsset,
+  targetWidth: number,
+  targetHeight: number,
+  selectedAnchor: 'center' = 'center',
+): CropRectPx {
+  if (sourceAsset.width <= 0 || sourceAsset.height <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return { sx: 0, sy: 0, sw: sourceAsset.width, sh: sourceAsset.height };
+  }
+  return computeCropRect(
+    sourceAsset.width,
+    sourceAsset.height,
+    targetWidth,
+    targetHeight,
+    selectedAnchor,
+  );
 }
 
 function wrapCanvasLines(
@@ -816,6 +998,8 @@ export function IosDoodlerStudio() {
   const dragRef = useRef<LabelDragState | null>(null);
   const dragFrameRequestRef = useRef<number | null>(null);
   const pendingDragUpdateRef = useRef<PendingLabelDragUpdate | null>(null);
+  const cropDragRef = useRef<CropDragState | null>(null);
+  const cropPreviewRef = useRef<HTMLDivElement | null>(null);
   const hasShownPersistenceWarningRef = useRef(false);
 
   const isLoadingPersistedState = !persistenceReady;
@@ -1062,26 +1246,19 @@ export function IosDoodlerStudio() {
       const targetWidth = targetAsset?.width ?? DEFAULT_SLOT_WIDTH;
       const targetHeight = targetAsset?.height ?? DEFAULT_SLOT_HEIGHT;
 
-      if (hasMatchingAspectRatio(sourceAsset.width, sourceAsset.height, targetWidth, targetHeight)) {
-        const normalizedAsset = await fitAssetToTarget(sourceAsset, targetWidth, targetHeight, 'center');
-        mutateSlot(slotId, (current) => applyUploadedAsset(current, activeLanguageCode, normalizedAsset));
-        toast.success(`Updated shot ${slotId} for ${activeLanguageCode.toUpperCase()}`);
-        return;
-      }
+    if (hasMatchingAspectRatio(sourceAsset.width, sourceAsset.height, targetWidth, targetHeight)) {
+      const normalizedAsset = await fitAssetToTarget(sourceAsset, targetWidth, targetHeight);
+      mutateSlot(slotId, (current) => applyUploadedAsset(current, activeLanguageCode, normalizedAsset));
+      toast.success(`Updated shot ${slotId} for ${activeLanguageCode.toUpperCase()}`);
+      return;
+    }
 
-      const anchorOptions = getCropAnchorsForAspectMismatch(
-        sourceAsset.width,
-        sourceAsset.height,
-        targetWidth,
-        targetHeight,
-      );
       setPendingImageUpload({
         slotId,
         sourceAsset,
         targetWidth,
         targetHeight,
-        anchorOptions,
-        selectedAnchor: anchorOptions.includes('center') ? 'center' : (anchorOptions[0] ?? 'center'),
+        cropRect: buildDefaultCropRect(sourceAsset, targetWidth, targetHeight, 'center'),
       });
     } catch {
       toast.error('Failed to read the selected image file.');
@@ -1097,7 +1274,7 @@ export function IosDoodlerStudio() {
         pendingImageUpload.sourceAsset,
         pendingImageUpload.targetWidth,
         pendingImageUpload.targetHeight,
-        pendingImageUpload.selectedAnchor,
+        pendingImageUpload.cropRect,
       );
       mutateSlot(
         pendingImageUpload.slotId,
@@ -1111,6 +1288,121 @@ export function IosDoodlerStudio() {
       setIsApplyingPendingImageUpload(false);
     }
   }, [activeLanguageCode, mutateSlot, pendingImageUpload]);
+
+  const handleCropPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>, handle: CropResizeHandle) => {
+    if (!pendingImageUpload || !cropPreviewRef.current) return;
+    if (event.button !== 0) return;
+
+    const rect = cropPreviewRef.current.getBoundingClientRect();
+    const sourceWidth = pendingImageUpload.sourceAsset.width;
+    const sourceHeight = pendingImageUpload.sourceAsset.height;
+
+    if (sourceWidth <= 0 || sourceHeight <= 0 || rect.width <= 0 || rect.height <= 0) return;
+
+    const sourceRect = pendingImageUpload.cropRect;
+    const handleTargetRatio = pendingImageUpload.targetWidth / pendingImageUpload.targetHeight;
+    const captureTarget = event.currentTarget as HTMLElement | null;
+
+    cropDragRef.current = {
+      pointerId: event.pointerId,
+      handle,
+      pointerCaptureTarget: captureTarget,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      sourceWidth,
+      sourceHeight,
+      targetRatio: handleTargetRatio,
+      startRect: sourceRect,
+      previewWidth: rect.width,
+      previewHeight: rect.height,
+    };
+
+    if (captureTarget?.setPointerCapture) {
+      captureTarget.setPointerCapture(event.pointerId);
+    }
+    event.preventDefault();
+  }, [pendingImageUpload]);
+
+  const clampPendingCropRect = useCallback((rect: CropRectPx) => {
+    if (!pendingImageUpload) return rect;
+    const targetRatio = pendingImageUpload.targetWidth / pendingImageUpload.targetHeight;
+    return clampCropRectByRatio(
+      {
+        sx: rect.sx,
+        sy: rect.sy,
+        sw: rect.sw,
+        sh: rect.sh,
+      },
+      pendingImageUpload.sourceAsset.width,
+      pendingImageUpload.sourceAsset.height,
+      targetRatio,
+    );
+  }, [pendingImageUpload]);
+
+  const updateCropRect = useCallback((updater: (current: CropRectPx) => CropRectPx) => {
+    setPendingImageUpload((previous) => {
+      if (!previous) return previous;
+      const next = clampPendingCropRect(updater(previous.cropRect));
+      return {
+        ...previous,
+        cropRect: next,
+      };
+    });
+  }, [clampPendingCropRect]);
+
+  useEffect(() => {
+    const onPointerMove = (event: PointerEvent) => {
+      const drag = cropDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      const deltaClientX = event.clientX - drag.startClientX;
+      const deltaClientY = event.clientY - drag.startClientY;
+      const deltaSourceX = drag.previewWidth > 0 ? (deltaClientX * drag.sourceWidth) / drag.previewWidth : 0;
+      const deltaSourceY = drag.previewHeight > 0 ? (deltaClientY * drag.sourceHeight) / drag.previewHeight : 0;
+
+      if (drag.handle === 'move') {
+        updateCropRect((current) => ({
+          ...current,
+          sx: drag.startRect.sx + deltaSourceX,
+          sy: drag.startRect.sy + deltaSourceY,
+        }));
+        return;
+      }
+
+      updateCropRect(() =>
+        rotateCropRectByHandle(
+          drag.startRect,
+          drag.sourceWidth,
+          drag.sourceHeight,
+          drag.targetRatio,
+          drag.handle,
+          deltaSourceX,
+          deltaSourceY,
+        ),
+      );
+    };
+
+    const onPointerUp = (event: PointerEvent) => {
+      const drag = cropDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
+      if (drag.pointerCaptureTarget && drag.pointerCaptureTarget.hasPointerCapture?.(event.pointerId)) {
+        drag.pointerCaptureTarget.releasePointerCapture(event.pointerId);
+      }
+
+      cropDragRef.current = null;
+      onPointerMove(event);
+    };
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [updateCropRect]);
 
   const handleOpenImportJsonModal = useCallback(() => {
     setImportJsonError(null);
@@ -1158,11 +1450,7 @@ export function IosDoodlerStudio() {
       Object.entries(parsedImportJson.translations).map(([code, values]) => [code, { ...values }]),
     ) as Record<string, Record<string, string>>;
 
-    setSlots((previous) => previous.map((slot) => ({
-      ...slot,
-      labels: [],
-      textByLanguage: importedTextByLanguage,
-    })));
+    setSlots(createSlotsFromImport(importedTextByLanguage));
 
     const importedLanguageCodes = orderLanguageCodes(
       Object.keys(parsedImportJson.translations).filter((code) => ALL_LANGUAGE_CODES.includes(code)),
@@ -2072,6 +2360,7 @@ export function IosDoodlerStudio() {
         onOpenChange={(open) => {
           if (!open && !isApplyingPendingImageUpload) {
             setPendingImageUpload(null);
+            cropDragRef.current = null;
           }
         }}
       >
@@ -2083,59 +2372,167 @@ export function IosDoodlerStudio() {
             </DialogTitle>
           </DialogHeader>
 
-          {pendingImageUpload ? (
-            <div className="space-y-4">
-              <p className="text-sm text-slate-600">
-                Uploaded image ratio does not match the target shot size.
-                Pick where to crop before saving.
-              </p>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-                  <span className="font-medium text-slate-800">Source</span>
-                  <div>{pendingImageUpload.sourceAsset.width}x{pendingImageUpload.sourceAsset.height}</div>
+          {pendingImageUpload ? (() => {
+            const cropPreviewRect = cropRectPxToPreview(
+              pendingImageUpload.cropRect,
+              pendingImageUpload.sourceAsset.width,
+              pendingImageUpload.sourceAsset.height,
+            );
+
+            return (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                  Uploaded image ratio does not match the target shot size.
+                  Pick where to crop before saving.
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <span className="font-medium text-slate-800">Source</span>
+                    <div>{pendingImageUpload.sourceAsset.width}x{pendingImageUpload.sourceAsset.height}</div>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                    <span className="font-medium text-slate-800">Target</span>
+                    <div>{pendingImageUpload.targetWidth}x{pendingImageUpload.targetHeight}</div>
+                  </div>
                 </div>
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-                  <span className="font-medium text-slate-800">Target</span>
-                  <div>{pendingImageUpload.targetWidth}x{pendingImageUpload.targetHeight}</div>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {pendingImageUpload.anchorOptions.map((anchor) => (
-                  <Button
-                    key={anchor}
-                    type="button"
-                    variant={pendingImageUpload.selectedAnchor === anchor ? 'default' : 'outline'}
-                    onClick={() => {
-                      setPendingImageUpload((previous) => (
-                        previous
-                          ? { ...previous, selectedAnchor: anchor }
-                          : previous
-                      ));
-                    }}
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-100 p-2">
+                  <div
+                    ref={cropPreviewRef}
+                    className="relative mx-auto w-full overflow-hidden rounded bg-white"
+                    style={{ aspectRatio: `${pendingImageUpload.sourceAsset.width} / ${pendingImageUpload.sourceAsset.height}` }}
                   >
-                    {formatCropAnchorLabel(anchor)}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={pendingImageUpload.sourceAsset.src}
+                      alt="Uploaded source screenshot"
+                      className="h-full w-full object-contain"
+                    />
+                    <div className="absolute inset-0">
+                      <div
+                        className="pointer-events-none absolute bg-black/35"
+                        style={{ left: 0, right: 0, top: 0, height: `${cropPreviewRect.top}%` }}
+                      />
+                      <div
+                        className="pointer-events-none absolute bg-black/35"
+                        style={{
+                          left: 0,
+                          right: 0,
+                          top: `${cropPreviewRect.top + cropPreviewRect.height}%`,
+                          bottom: 0,
+                        }}
+                      />
+                      <div
+                        className="pointer-events-none absolute bg-black/35"
+                        style={{
+                          left: 0,
+                          top: `${cropPreviewRect.top}%`,
+                          width: `${cropPreviewRect.left}%`,
+                          height: `${cropPreviewRect.height}%`,
+                        }}
+                      />
+                      <div
+                        className="pointer-events-none absolute bg-black/35"
+                        style={{
+                          left: `${cropPreviewRect.left + cropPreviewRect.width}%`,
+                          top: `${cropPreviewRect.top}%`,
+                          width: `${100 - (cropPreviewRect.left + cropPreviewRect.width)}%`,
+                          height: `${cropPreviewRect.height}%`,
+                        }}
+                      />
+                      <div
+                        className="absolute cursor-move border-2 border-sky-600 bg-sky-500/15 shadow-sm"
+                        style={{
+                          left: `${cropPreviewRect.left}%`,
+                          top: `${cropPreviewRect.top}%`,
+                          width: `${cropPreviewRect.width}%`,
+                          height: `${cropPreviewRect.height}%`,
+                          touchAction: 'none',
+                        }}
+                        onPointerDown={(event) => handleCropPointerDown(event, 'move')}
+                      >
+                        <div className="pointer-events-none absolute left-1 top-1 rounded-sm bg-white/75 px-1.5 py-0.5 text-[10px] font-medium text-sky-800">
+                          Cropping area
+                        </div>
+                        <div
+                          role="presentation"
+                          className="absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'left')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute -right-2 top-1/2 h-4 w-4 -translate-y-1/2 cursor-ew-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'right')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute left-1/2 -top-2 h-4 w-4 -translate-x-1/2 cursor-ns-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'top')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute left-1/2 -bottom-2 h-4 w-4 -translate-x-1/2 cursor-ns-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'bottom')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute -left-2 -top-2 h-4 w-4 cursor-nwse-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'top-left')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute -right-2 -top-2 h-4 w-4 cursor-nesw-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'top-right')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute -left-2 -bottom-2 h-4 w-4 cursor-nesw-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'bottom-left')}
+                        />
+                        <div
+                          role="presentation"
+                          className="absolute -right-2 -bottom-2 h-4 w-4 cursor-nwse-resize rounded-full border border-sky-700 bg-white"
+                          style={{ touchAction: 'none' }}
+                          onPointerDown={(event) => handleCropPointerDown(event, 'bottom-right')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Visual preview of the area that will remain after crop.
+                  </p>
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setPendingImageUpload(null);
+                      cropDragRef.current = null;
+                    }}
+                    disabled={isApplyingPendingImageUpload}
+                  >
+                    Cancel
                   </Button>
-                ))}
+                  <Button
+                    type="button"
+                    onClick={handleApplyPendingImageUpload}
+                    disabled={isApplyingPendingImageUpload}
+                    className="gap-2"
+                  >
+                    <Crop className="h-4 w-4" />
+                    {isApplyingPendingImageUpload ? 'Applying...' : 'Apply Crop'}
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPendingImageUpload(null)}
-                  disabled={isApplyingPendingImageUpload}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  onClick={handleApplyPendingImageUpload}
-                  disabled={isApplyingPendingImageUpload}
-                >
-                  {isApplyingPendingImageUpload ? 'Applying...' : 'Apply Crop'}
-                </Button>
-              </div>
-            </div>
-          ) : null}
+            );
+          })() : null}
         </DialogContent>
       </Dialog>
 
@@ -2252,22 +2649,24 @@ export function IosDoodlerStudio() {
                 {!selectedLabel ? (
                   <p className="text-xs leading-4 text-slate-500">Drop any text key onto the screenshot to start editing.</p>
                 ) : (
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <Select value={selectedLabel.id} onValueChange={setSelectedLabelId} className="min-w-0 flex-1">
-                        <SelectTrigger className="h-9 w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {editorLabelOptions.map((option) => (
-                            <SelectItem key={option.id} value={option.id}>{option.title}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="icon"
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <Select value={selectedLabel.id} onValueChange={setSelectedLabelId}>
+                          <SelectTrigger className="h-9 w-full">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {editorLabelOptions.map((option) => (
+                              <SelectItem key={option.id} value={option.id}>{option.title}</SelectItem>
+                            ))}
+                          </SelectContent>
+                          </Select>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
                         className="shrink-0 text-rose-600 hover:text-rose-700"
                         onClick={() => handleEditorRemoveLabel()}
                         aria-label="Remove selected label"
