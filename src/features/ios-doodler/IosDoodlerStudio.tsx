@@ -2234,7 +2234,7 @@ export function IosDoodlerStudio() {
                 </div>
               </div>
 
-              <div className="h-full overflow-auto p-4 md:p-6">
+              <div className="h-full overflow-auto p-3 pb-2 md:p-4">
                 <div className="mb-3 flex items-center gap-2 text-sm font-medium text-slate-700">
                   <PencilRuler className="h-4 w-4" />
                   Label Controls
@@ -2243,7 +2243,7 @@ export function IosDoodlerStudio() {
                 {!selectedLabel ? (
                   <p className="text-sm text-slate-500">Drop any text key onto the screenshot to start editing.</p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-2">
                     <div className="space-y-2">
                       <Label>Select label</Label>
                       <div className="flex items-center gap-2">
@@ -2273,15 +2273,17 @@ export function IosDoodlerStudio() {
                     <div className="space-y-2">
                       <Label>Text ({activeLanguageCode.toUpperCase()})</Label>
                       <Input
+                        className="h-8"
                         value={resolveLabelText(editingSlot, activeLanguageCode, selectedLabel.key)}
                         onChange={(event) => handleEditorTextChange(event.target.value)}
                       />
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <div className="space-y-2">
                         <Label>X (px)</Label>
                         <Input
+                          className="h-8"
                           value={
                             editingAsset && selectedLabelNumericDraft
                               ? selectedLabelNumericDraft.x
@@ -2297,11 +2299,12 @@ export function IosDoodlerStudio() {
                             }
                           }}
                         />
-                        <p className="text-xs text-slate-500">{(selectedLabel.x * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-slate-500">{(selectedLabel.x * 100).toFixed(1)}%</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Y (px)</Label>
                         <Input
+                          className="h-8"
                           value={
                             editingAsset && selectedLabelNumericDraft
                               ? selectedLabelNumericDraft.y
@@ -2317,11 +2320,12 @@ export function IosDoodlerStudio() {
                             }
                           }}
                         />
-                        <p className="text-xs text-slate-500">{(selectedLabel.y * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-slate-500">{(selectedLabel.y * 100).toFixed(1)}%</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Width (px)</Label>
                         <Input
+                          className="h-8"
                           value={
                             editingAsset && selectedLabelNumericDraft
                               ? selectedLabelNumericDraft.width
@@ -2337,11 +2341,12 @@ export function IosDoodlerStudio() {
                             }
                           }}
                         />
-                        <p className="text-xs text-slate-500">{(selectedLabel.width * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-slate-500">{(selectedLabel.width * 100).toFixed(1)}%</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Height (px)</Label>
                         <Input
+                          className="h-8"
                           value={
                             editingAsset && selectedLabelNumericDraft
                               ? selectedLabelNumericDraft.height
@@ -2357,11 +2362,12 @@ export function IosDoodlerStudio() {
                             }
                           }}
                         />
-                        <p className="text-xs text-slate-500">{(selectedLabel.height * 100).toFixed(1)}%</p>
+                        <p className="text-[11px] text-slate-500">{(selectedLabel.height * 100).toFixed(1)}%</p>
                       </div>
                       <div className="space-y-2">
                         <Label>Font size (px)</Label>
                         <Input
+                          className="h-8"
                           value={
                             editingAsset && selectedLabelNumericDraft
                               ? selectedLabelNumericDraft.fontSize
@@ -2381,6 +2387,7 @@ export function IosDoodlerStudio() {
                       <div className="space-y-2">
                         <Label>Weight</Label>
                         <Input
+                          className="h-8"
                           value={selectedLabelNumericDraft?.fontWeight ?? String(selectedLabel.fontWeight)}
                           onChange={(event) => handleEditorPixelChange('fontWeight', event.target.value)}
                           onBlur={() => commitSelectedLabelNumericInput('fontWeight')}
@@ -2396,6 +2403,7 @@ export function IosDoodlerStudio() {
                       <div className="space-y-2">
                         <Label>Max lines</Label>
                         <Input
+                          className="h-8"
                           value={selectedLabelNumericDraft?.maxLines ?? String(selectedLabel.maxLines)}
                           onChange={(event) => handleEditorPixelChange('maxLines', event.target.value)}
                           onBlur={() => commitSelectedLabelNumericInput('maxLines')}
@@ -2418,7 +2426,7 @@ export function IosDoodlerStudio() {
                           value={rotationValue}
                           onInput={(event) => handleEditorRotationChange(event.currentTarget.value)}
                           onChange={(event) => handleEditorRotationChange(event.currentTarget.value)}
-                          className="h-2 w-full cursor-grab appearance-none rounded-full bg-slate-200 accent-sky-600"
+                          className="h-1.5 w-full cursor-grab appearance-none rounded-full bg-slate-200 accent-sky-600"
                         />
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs text-slate-500">-180</span>
@@ -2427,9 +2435,9 @@ export function IosDoodlerStudio() {
                             min={-180}
                             max={180}
                             step={1}
+                            className="h-8 w-20 px-2 text-center font-mono text-sm"
                             value={String(rotationValue)}
                             onChange={(event) => handleEditorRotationChange(event.target.value)}
-                            className="h-8 w-24 text-center font-mono"
                           />
                           <span className="text-xs text-slate-500">180</span>
                         </div>
@@ -2439,7 +2447,7 @@ export function IosDoodlerStudio() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <Label>Font family</Label>
-                        <span className="text-xs text-slate-500">{orderedFontFamilies.length}</span>
+                        <span className="text-[11px] text-slate-500">{orderedFontFamilies.length} available</span>
                       </div>
                       <Popover
                         open={isFontPickerOpen}
@@ -2472,11 +2480,11 @@ export function IosDoodlerStudio() {
                               value={fontFilterQuery}
                               onChange={(event) => setFontFilterQuery(event.target.value)}
                               placeholder="Search fonts"
-                              className="h-8 pl-8"
+                              className="h-7 pl-8"
                               autoFocus
                             />
                           </div>
-                          <div className="max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1.5">
+                          <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-1">
                             {orderedFontFamilies.length === 0 ? (
                               <p className="px-2 py-2 text-sm text-slate-500">No fonts matched this filter.</p>
                             ) : (
@@ -2488,7 +2496,7 @@ export function IosDoodlerStudio() {
                                     <Button
                                       type="button"
                                       variant={isSelectedFont ? 'default' : 'outline'}
-                                      className="min-w-0 flex-1 justify-between text-left"
+                                      className="min-w-0 flex-1 justify-between h-8 px-2 text-left text-xs"
                                       onClick={() => handleEditorFontFamilyChange(fontFamily)}
                                       style={{ fontFamily }}
                                     >
@@ -2516,17 +2524,31 @@ export function IosDoodlerStudio() {
 
                     <div className="space-y-2">
                       <Label>Color</Label>
-                      <Input type="color" value={selectedLabel.color} onChange={(event) => handleEditorColorChange(event.target.value)} />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="color"
+                          value={selectedLabel.color}
+                          onChange={(event) => handleEditorColorChange(event.target.value)}
+                          className="h-8 w-16 cursor-pointer p-0.5"
+                        />
+                        <Input
+                          value={selectedLabel.color}
+                          readOnly
+                          className="h-8 text-xs"
+                          onFocus={(event) => event.currentTarget.blur()}
+                          aria-readonly="true"
+                        />
+                      </div>
                     </div>
 
                     <div className="space-y-2">
                       <Label>Alignment</Label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <Button
                           type="button"
                           size="sm"
                           variant={selectedLabel.align === 'left' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorAlignChange('left')}
                         >
                           <AlignLeft className="h-4 w-4" />
@@ -2536,7 +2558,7 @@ export function IosDoodlerStudio() {
                           type="button"
                           size="sm"
                           variant={selectedLabel.align === 'center' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorAlignChange('center')}
                         >
                           <AlignCenter className="h-4 w-4" />
@@ -2546,7 +2568,7 @@ export function IosDoodlerStudio() {
                           type="button"
                           size="sm"
                           variant={selectedLabel.align === 'right' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorAlignChange('right')}
                         >
                           <AlignRight className="h-4 w-4" />
@@ -2557,12 +2579,12 @@ export function IosDoodlerStudio() {
 
                     <div className="space-y-2">
                       <Label>Vertical Alignment</Label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="grid grid-cols-3 gap-1.5">
                         <Button
                           type="button"
                           size="sm"
                           variant={(selectedLabel.verticalAlign ?? 'center') === 'top' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorVerticalAlignChange('top')}
                         >
                           <AlignStartVertical className="h-4 w-4" />
@@ -2572,7 +2594,7 @@ export function IosDoodlerStudio() {
                           type="button"
                           size="sm"
                           variant={(selectedLabel.verticalAlign ?? 'center') === 'center' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorVerticalAlignChange('center')}
                         >
                           <AlignCenterVertical className="h-4 w-4" />
@@ -2582,7 +2604,7 @@ export function IosDoodlerStudio() {
                           type="button"
                           size="sm"
                           variant={(selectedLabel.verticalAlign ?? 'center') === 'bottom' ? 'default' : 'outline'}
-                          className="gap-1"
+                          className="gap-1 text-xs"
                           onClick={() => handleEditorVerticalAlignChange('bottom')}
                         >
                           <AlignEndVertical className="h-4 w-4" />
