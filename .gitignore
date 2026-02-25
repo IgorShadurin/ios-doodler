@@ -45,3 +45,4 @@ next-env.d.ts
 /.tmp-visual
 /.tmp-batch-visual
 /.tmp-ui-shots
+.idea
