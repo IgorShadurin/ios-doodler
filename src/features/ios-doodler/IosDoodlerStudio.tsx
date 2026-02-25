@@ -95,6 +95,8 @@ type LabelDragState = {
   labelId: string;
   mode: 'move' | 'resize' | 'rotate';
   resizeEdge?: ResizeEdge;
+  pointerId: number;
+  pointerCaptureTarget: HTMLElement | null;
   startClientX: number;
   startClientY: number;
   startLabelX: number;
@@ -107,6 +109,17 @@ type LabelDragState = {
   rotateCenterY?: number;
   frameWidth: number;
   frameHeight: number;
+};
+
+type PendingLabelDragUpdate = {
+  slotId: string;
+  labelId: string;
+  mode: 'move' | 'resize' | 'rotate';
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  rotation?: number;
 };
 
 type ResizeEdge =
@@ -636,6 +649,7 @@ function LabelOverlay({
                   cursor: showGuides
                     ? (isSelected ? 'grab' : 'move')
                     : undefined,
+                  touchAction: 'none',
                 }}
                 >
                   <span
@@ -661,7 +675,11 @@ function LabelOverlay({
                         type="button"
                         aria-label={handle.ariaLabel}
                         className={cn('z-20 rounded-none border-none bg-transparent p-0', handle.className)}
-                        style={{ transform: `scale(${handleScale})`, transformOrigin: 'center' }}
+                        style={{
+                          transform: `scale(${handleScale})`,
+                          transformOrigin: 'center',
+                          touchAction: 'none',
+                        }}
                         onPointerDown={(event) => {
                           event.stopPropagation();
                           const frameRect = frameElementRef.current?.getBoundingClientRect();
@@ -799,6 +817,8 @@ export function IosDoodlerStudio() {
   const editorFileInputRef = useRef<HTMLInputElement | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement | null>(null);
   const dragRef = useRef<LabelDragState | null>(null);
+  const dragFrameRequestRef = useRef<number | null>(null);
+  const pendingDragUpdateRef = useRef<PendingLabelDragUpdate | null>(null);
   const hasShownPersistenceWarningRef = useRef(false);
 
   const isLoadingPersistedState = !persistenceReady;
@@ -1323,17 +1343,26 @@ export function IosDoodlerStudio() {
     if (!baseLabel) return;
 
     event.preventDefault();
+    event.stopPropagation();
+    const captureTarget = event.currentTarget as HTMLElement | null;
+    if (captureTarget && typeof captureTarget.setPointerCapture === 'function') {
+      captureTarget.setPointerCapture(event.pointerId);
+    }
     setSelectedLabelId(labelId);
     const estimatedLabelHeight = Math.max(baseLabel.maxLines, 1) * baseLabel.fontSize;
     const rotateCenterX = frame.rotateCenterX ?? (frame.left + (baseLabel.x + baseLabel.width / 2) * frame.width);
     const rotateCenterY = frame.rotateCenterY ?? (frame.top + (baseLabel.y + estimatedLabelHeight / 2) * frame.height);
     const startPointerAngle = Math.atan2(event.clientY - rotateCenterY, event.clientX - rotateCenterX) * (180 / Math.PI);
+    dragFrameRequestRef.current = null;
+    pendingDragUpdateRef.current = null;
 
     dragRef.current = {
       slotId: editingSlot.id,
       labelId,
       mode,
       resizeEdge: frame.resizeEdge,
+      pointerId: event.pointerId,
+      pointerCaptureTarget: captureTarget,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startLabelX: baseLabel.x,
@@ -1350,18 +1379,63 @@ export function IosDoodlerStudio() {
   }, [editingSlot]);
 
   useEffect(() => {
+    const applyPendingDragUpdate = () => {
+      const update = pendingDragUpdateRef.current;
+      pendingDragUpdateRef.current = null;
+      if (!update) return;
+
+      if (update.mode === 'move' && update.x !== undefined && update.y !== undefined) {
+        mutateSlot(update.slotId, (slot) => setLabelPosition(slot, update.labelId, update.x as number, update.y as number));
+        return;
+      }
+
+      if (
+        update.mode === 'resize'
+        && update.x !== undefined
+        && update.y !== undefined
+        && update.width !== undefined
+        && update.height !== undefined
+      ) {
+        mutateSlot(update.slotId, (slot) => updateLabel(slot, update.labelId, {
+          x: update.x as number,
+          y: update.y as number,
+          width: update.width,
+          height: update.height,
+        }));
+        return;
+      }
+
+      if (update.mode === 'rotate' && update.rotation !== undefined) {
+        mutateSlot(update.slotId, (slot) => updateLabel(slot, update.labelId, {
+          rotation: update.rotation,
+        }));
+      }
+    };
+
+    const flushPendingDragUpdate = () => {
+      if (dragFrameRequestRef.current !== null) {
+        cancelAnimationFrame(dragFrameRequestRef.current);
+        dragFrameRequestRef.current = null;
+      }
+      applyPendingDragUpdate();
+    };
+
     const onPointerMove = (event: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag) return;
 
+      let x: number | undefined;
+      let y: number | undefined;
+      let width: number | undefined;
+      let height: number | undefined;
+      let rotation: number | undefined;
+
       if (drag.mode === 'move') {
         const deltaX = (event.clientX - drag.startClientX) / drag.frameWidth;
         const deltaY = (event.clientY - drag.startClientY) / drag.frameHeight;
-        mutateSlot(drag.slotId, (slot) => setLabelPosition(slot, drag.labelId, drag.startLabelX + deltaX, drag.startLabelY + deltaY));
-        return;
-      }
-
-      if (drag.mode === 'resize') {
+        x = drag.startLabelX + deltaX;
+        y = drag.startLabelY + deltaY;
+      } else if (drag.mode === 'resize') {
         const pointerDeltaX = event.clientX - drag.startClientX;
         const pointerDeltaY = event.clientY - drag.startClientY;
         const radians = (drag.startLabelRotation * Math.PI) / 180;
@@ -1393,38 +1467,55 @@ export function IosDoodlerStudio() {
 
         nextWidth = Math.max(nextWidth, 0.01);
         nextHeight = Math.max(nextHeight, 0.005);
-
-        mutateSlot(drag.slotId, (slot) => updateLabel(slot, drag.labelId, {
-          x: nextX,
-          y: nextY,
-          width: nextWidth,
-          height: nextHeight,
-        }));
-        return;
-      }
-
-      if (drag.mode === 'rotate') {
+        x = nextX;
+        y = nextY;
+        width = nextWidth;
+        height = nextHeight;
+      } else if (drag.mode === 'rotate') {
         const rotateCenterX = drag.rotateCenterX ?? 0;
         const rotateCenterY = drag.rotateCenterY ?? 0;
         const currentAngle = Math.atan2(event.clientY - rotateCenterY, event.clientX - rotateCenterX) * (180 / Math.PI);
         const angleDelta = currentAngle - (drag.startPointerAngle ?? 0);
         const rawRotation = drag.startLabelRotation + angleDelta;
-        const snappedRotation = event.shiftKey ? Math.round(rawRotation / 15) * 15 : rawRotation;
-        mutateSlot(drag.slotId, (slot) => updateLabel(slot, drag.labelId, {
-          rotation: snappedRotation,
-        }));
+        rotation = event.shiftKey ? Math.round(rawRotation / 15) * 15 : rawRotation;
+      }
+
+      pendingDragUpdateRef.current = {
+        slotId: drag.slotId,
+        labelId: drag.labelId,
+        mode: drag.mode,
+        x,
+        y,
+        width,
+        height,
+        rotation,
+      };
+
+      if (dragFrameRequestRef.current === null) {
+        dragFrameRequestRef.current = requestAnimationFrame(() => {
+          dragFrameRequestRef.current = null;
+          applyPendingDragUpdate();
+        });
       }
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (event: PointerEvent) => {
+      const drag = dragRef.current;
+      if (drag?.pointerCaptureTarget && drag.pointerCaptureTarget.hasPointerCapture?.(event.pointerId)) {
+        drag.pointerCaptureTarget.releasePointerCapture(event.pointerId);
+      }
+      flushPendingDragUpdate();
       dragRef.current = null;
     };
 
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
     return () => {
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+      flushPendingDragUpdate();
     };
   }, [mutateSlot]);
 
