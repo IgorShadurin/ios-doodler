@@ -260,16 +260,26 @@ export function moveLabel(slot: TemplateSlot, labelId: string, deltaX: number, d
 }
 
 export function setLabelPosition(slot: TemplateSlot, labelId: string, x: number, y: number): TemplateSlot {
+  let changed = false;
+  const nextLabels = slot.labels.map((label) => {
+    if (label.id !== labelId) return label;
+    const nextX = clampLabelX(x, label.width);
+    const nextY = clampLabelY(y, label.height);
+    if (nextX === label.x && nextY === label.y) {
+      return label;
+    }
+    changed = true;
+    return {
+      ...label,
+      x: nextX,
+      y: nextY,
+    };
+  });
+
+  if (!changed) return slot;
   return {
     ...slot,
-    labels: slot.labels.map((label) => {
-      if (label.id !== labelId) return label;
-      return {
-        ...label,
-        x: clampLabelX(x, label.width),
-        y: clampLabelY(y, label.height),
-      };
-    }),
+    labels: nextLabels,
   };
 }
 
@@ -278,25 +288,50 @@ export function updateLabel(
   labelId: string,
   changes: Partial<Omit<TemplateLabel, 'id' | 'key'>>,
 ): TemplateSlot {
+  let changed = false;
+  const nextLabels = slot.labels.map((label) => {
+    if (label.id !== labelId) return label;
+    const merged: TemplateLabel = {
+      ...label,
+      ...changes,
+    };
+    merged.fontFamily = merged.fontFamily?.trim() || 'Arial';
+    merged.width = Math.max(merged.width, 0.01);
+    merged.height = Math.max(merged.height, 0.01);
+    merged.fontSize = Math.max(merged.fontSize, 0.005);
+    merged.maxLines = Math.round(clamp(merged.maxLines, 1, 8));
+    merged.fontWeight = Math.round(clamp(merged.fontWeight, 100, 900));
+    merged.rotation = clamp(merged.rotation, -180, 180);
+    merged.x = clampLabelX(merged.x, merged.width);
+    merged.y = clampLabelY(merged.y, merged.height);
+
+    const didChange = (
+      merged.x !== label.x
+      || merged.y !== label.y
+      || merged.width !== label.width
+      || merged.height !== label.height
+      || merged.fontSize !== label.fontSize
+      || merged.fontFamily !== label.fontFamily
+      || merged.fontWeight !== label.fontWeight
+      || merged.rotation !== label.rotation
+      || merged.color !== label.color
+      || merged.maxLines !== label.maxLines
+      || merged.align !== label.align
+      || merged.verticalAlign !== label.verticalAlign
+    );
+
+    if (!didChange) {
+      return label;
+    }
+
+    changed = true;
+    return merged;
+  });
+
+  if (!changed) return slot;
   return {
     ...slot,
-    labels: slot.labels.map((label) => {
-      if (label.id !== labelId) return label;
-      const merged: TemplateLabel = {
-        ...label,
-        ...changes,
-      };
-      merged.fontFamily = merged.fontFamily?.trim() || 'Arial';
-      merged.width = Math.max(merged.width, 0.01);
-      merged.height = Math.max(merged.height, 0.01);
-      merged.fontSize = Math.max(merged.fontSize, 0.005);
-      merged.maxLines = Math.round(clamp(merged.maxLines, 1, 8));
-      merged.fontWeight = Math.round(clamp(merged.fontWeight, 100, 900));
-      merged.rotation = clamp(merged.rotation, -180, 180);
-      merged.x = clampLabelX(merged.x, merged.width);
-      merged.y = clampLabelY(merged.y, merged.height);
-      return merged;
-    }),
+    labels: nextLabels,
   };
 }
 

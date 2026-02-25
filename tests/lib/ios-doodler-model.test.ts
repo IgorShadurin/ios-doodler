@@ -176,3 +176,29 @@ test("setLabelPosition supports moving oversized labels across X range", () => {
   assert.equal(movedLeft.labels[0]?.x, -0.9);
   assert.equal(movedRight.labels[0]?.x, 0.95);
 });
+
+test("setLabelPosition returns the same slot when the position does not change", () => {
+  const [slot] = createInitialSlots(STUDIO_LANGUAGES);
+  assert.ok(slot);
+  slot.textByLanguage = { "en-US": { headline: "Feature One" } };
+
+  const withLabel = addLabelFromKey(slot, "headline");
+  const label = withLabel.labels[0];
+  assert.ok(label);
+
+  const same = setLabelPosition(withLabel, label.id, label.x, label.y);
+  assert.equal(same, withLabel);
+});
+
+test("updateLabel returns the same slot when no effective style change is applied", () => {
+  const [slot] = createInitialSlots(STUDIO_LANGUAGES);
+  assert.ok(slot);
+  slot.textByLanguage = { "en-US": { headline: "Feature One" } };
+
+  const withLabel = addLabelFromKey(slot, "headline");
+  const label = withLabel.labels[0];
+  assert.ok(label);
+
+  const same = updateLabel(withLabel, label.id, { color: label.color });
+  assert.equal(same, withLabel);
+});

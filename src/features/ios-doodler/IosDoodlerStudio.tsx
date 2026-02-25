@@ -94,6 +94,7 @@ type LabelDragState = {
   resizeEdge?: ResizeEdge;
   pointerId: number;
   pointerCaptureTarget: HTMLElement | null;
+  labelElement: HTMLElement | null;
   startClientX: number;
   startClientY: number;
   startLabelX: number;
@@ -118,6 +119,51 @@ type PendingLabelDragUpdate = {
   height?: number;
   rotation?: number;
 };
+
+function hasEqualNumericDraftValues(current: LabelNumericDraft | undefined, next: LabelNumericDraft): boolean {
+  if (!current) return false;
+  return (
+    current.x === next.x
+    && current.y === next.y
+    && current.width === next.width
+    && current.height === next.height
+    && current.fontSize === next.fontSize
+    && current.fontWeight === next.fontWeight
+    && current.maxLines === next.maxLines
+  );
+}
+
+function applyDragPreviewToLabelElement(drag: LabelDragState, update: PendingLabelDragUpdate) {
+  const element = drag.labelElement;
+  if (!element) return;
+
+  if (update.mode === 'move' || update.mode === 'resize') {
+    const nextX = update.x ?? drag.startLabelX;
+    const nextY = update.y ?? drag.startLabelY;
+    element.style.left = `${nextX * 100}%`;
+    element.style.top = `${nextY * 100}%`;
+  }
+
+  if (update.mode === 'resize') {
+    const nextWidth = update.width ?? drag.startLabelWidth;
+    const nextHeight = update.height ?? drag.startLabelHeight;
+    element.style.width = `${nextWidth * 100}%`;
+    element.style.height = `${nextHeight * 100}%`;
+  }
+
+  if (update.mode === 'rotate') {
+    const nextRotation = update.rotation ?? drag.startLabelRotation;
+    element.style.transform = `rotate(${nextRotation}deg)`;
+  }
+}
+
+function findLabelOverlayElement(labelId: string): HTMLElement | null {
+  if (typeof document === 'undefined') return null;
+  const escapedId = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(labelId)
+    : labelId.replace(/"/g, '\\"');
+  return document.querySelector(`[data-label-overlay="true"][data-label-id="${escapedId}"]`) as HTMLElement | null;
+}
 
 type CropRectPx = {
   sx: number;
@@ -180,6 +226,8 @@ const DEFAULT_SLOT_WIDTH = 1290;
 const DEFAULT_SLOT_HEIGHT = 2796;
 const LABEL_KEY_DRAG_MIME = 'text/x-ios-doodler-label-key';
 const MIN_FONT_SIZE_PX = 6;
+const PERSISTENCE_DEBOUNCE_MS = 220;
+const PERF_DEBUG_WINDOW_FLAG = '__IOS_DOODLER_DEBUG';
 const SELECTION_BORDER_COLOR = 'rgb(2 132 199)';
 const SELECTION_BORDER_WIDTH = 2;
 const SELECTION_FRAME_CLASS = 'cursor-move border-solid bg-sky-500/15 shadow-sm';
@@ -802,6 +850,7 @@ function LabelOverlay({
               <div
                 key={label.id}
                 data-label-overlay="true"
+                data-label-id={label.id}
                 className={cn(
                   'absolute select-none whitespace-pre-wrap leading-[1.14] text-balance',
                   showGuides && 'pointer-events-auto border border-sky-300/80 bg-sky-500/5',
@@ -1013,13 +1062,39 @@ export function IosDoodlerStudio() {
   const editorFileInputRef = useRef<HTMLInputElement | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement | null>(null);
   const dragRef = useRef<LabelDragState | null>(null);
-  const dragFrameRequestRef = useRef<number | null>(null);
   const pendingDragUpdateRef = useRef<PendingLabelDragUpdate | null>(null);
   const cropDragRef = useRef<CropDragState | null>(null);
   const cropPreviewRef = useRef<HTMLDivElement | null>(null);
   const hasShownPersistenceWarningRef = useRef(false);
+  const perfDebugCountersRef = useRef({
+    dragMoves: 0,
+    dragApplies: 0,
+    draftSyncWrites: 0,
+    persistWrites: 0,
+  });
 
   const isLoadingPersistedState = !persistenceReady;
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || process.env.NODE_ENV === 'production') return;
+
+    const win = window as Window & { [PERF_DEBUG_WINDOW_FLAG]?: boolean };
+    const intervalId = window.setInterval(() => {
+      if (!win[PERF_DEBUG_WINDOW_FLAG]) return;
+      const counters = perfDebugCountersRef.current;
+      const hasActivity = Object.values(counters).some((value) => value > 0);
+      if (!hasActivity) return;
+      console.debug('[ios-doodler][perf]', { ...counters });
+      counters.dragMoves = 0;
+      counters.dragApplies = 0;
+      counters.draftSyncWrites = 0;
+      counters.persistWrites = 0;
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   const enabledLanguageSet = useMemo(() => new Set(enabledLanguages), [enabledLanguages]);
   const filteredStudioLanguages = useMemo(() => {
@@ -1078,10 +1153,18 @@ export function IosDoodlerStudio() {
   const selectedLabelNumericDraft = selectedLabel ? (labelNumericDrafts[selectedLabel.id] ?? selectedLabelNumericDrafts) : null;
   useEffect(() => {
     if (!selectedLabel || !selectedLabelNumericDrafts) return;
-    setLabelNumericDrafts((previous) => ({
-      ...previous,
-      [selectedLabel.id]: selectedLabelNumericDrafts,
-    }));
+    if (dragRef.current?.labelId === selectedLabel.id) return;
+    setLabelNumericDrafts((previous) => {
+      const current = previous[selectedLabel.id];
+      if (hasEqualNumericDraftValues(current, selectedLabelNumericDrafts)) {
+        return previous;
+      }
+      perfDebugCountersRef.current.draftSyncWrites += 1;
+      return {
+        ...previous,
+        [selectedLabel.id]: selectedLabelNumericDrafts,
+      };
+    });
   }, [selectedLabel, selectedLabelNumericDrafts]);
   const orderedFontFamilies = useMemo(() => {
     const favoriteSet = new Set(favoriteFonts);
@@ -1189,21 +1272,28 @@ export function IosDoodlerStudio() {
       favoriteFonts,
     };
 
-    const persist = async () => {
-      try {
-        await saveIosDoodlerState(payload);
-        window.localStorage.removeItem(LEGACY_STORAGE_KEY);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'unknown database error';
-        console.warn('Failed to persist iOS Doodler state to browser DB:', message);
-        if (!hasShownPersistenceWarningRef.current) {
-          toast.error('Failed to save browser database state.');
-          hasShownPersistenceWarningRef.current = true;
+    const timeoutId = window.setTimeout(() => {
+      const persist = async () => {
+        try {
+          await saveIosDoodlerState(payload);
+          perfDebugCountersRef.current.persistWrites += 1;
+          window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'unknown database error';
+          console.warn('Failed to persist iOS Doodler state to browser DB:', message);
+          if (!hasShownPersistenceWarningRef.current) {
+            toast.error('Failed to save browser database state.');
+            hasShownPersistenceWarningRef.current = true;
+          }
         }
-      }
-    };
+      };
 
-    void persist();
+      void persist();
+    }, PERSISTENCE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [activeLanguageCode, enabledLanguages, favoriteFonts, slots, persistenceReady]);
 
   useEffect(() => {
@@ -1214,7 +1304,18 @@ export function IosDoodlerStudio() {
   }, [editingSlot, selectedLabelId]);
 
   const mutateSlot = useCallback((slotId: string, recipe: (slot: TemplateSlot) => TemplateSlot) => {
-    setSlots((previous) => previous.map((slot) => (slot.id === slotId ? recipe(slot) : slot)));
+    setSlots((previous) => {
+      let changed = false;
+      const next = previous.map((slot) => {
+        if (slot.id !== slotId) return slot;
+        const updated = recipe(slot);
+        if (updated !== slot) {
+          changed = true;
+        }
+        return updated;
+      });
+      return changed ? next : previous;
+    });
   }, []);
 
   const handleToggleLanguage = useCallback((languageCode: string, checked: boolean) => {
@@ -1669,8 +1770,8 @@ export function IosDoodlerStudio() {
     const rotateCenterX = frame.rotateCenterX ?? (frame.left + (baseLabel.x + baseLabel.width / 2) * frame.width);
     const rotateCenterY = frame.rotateCenterY ?? (frame.top + (baseLabel.y + estimatedLabelHeight / 2) * frame.height);
     const startPointerAngle = Math.atan2(event.clientY - rotateCenterY, event.clientX - rotateCenterX) * (180 / Math.PI);
-    dragFrameRequestRef.current = null;
     pendingDragUpdateRef.current = null;
+    const labelElement = captureTarget?.closest('[data-label-overlay="true"]') as HTMLElement | null;
 
     dragRef.current = {
       slotId: editingSlot.id,
@@ -1679,6 +1780,7 @@ export function IosDoodlerStudio() {
       resizeEdge: frame.resizeEdge,
       pointerId: event.pointerId,
       pointerCaptureTarget: captureTarget,
+      labelElement,
       startClientX: event.clientX,
       startClientY: event.clientY,
       startLabelX: baseLabel.x,
@@ -1699,6 +1801,7 @@ export function IosDoodlerStudio() {
       const update = pendingDragUpdateRef.current;
       pendingDragUpdateRef.current = null;
       if (!update) return;
+      perfDebugCountersRef.current.dragApplies += 1;
 
       if (update.mode === 'move' && update.x !== undefined && update.y !== undefined) {
         mutateSlot(update.slotId, (slot) => setLabelPosition(slot, update.labelId, update.x as number, update.y as number));
@@ -1729,16 +1832,13 @@ export function IosDoodlerStudio() {
     };
 
     const flushPendingDragUpdate = () => {
-      if (dragFrameRequestRef.current !== null) {
-        cancelAnimationFrame(dragFrameRequestRef.current);
-        dragFrameRequestRef.current = null;
-      }
       applyPendingDragUpdate();
     };
 
     const onPointerMove = (event: PointerEvent) => {
       const drag = dragRef.current;
       if (!drag || drag.pointerId !== event.pointerId) return;
+      perfDebugCountersRef.current.dragMoves += 1;
 
       let x: number | undefined;
       let y: number | undefined;
@@ -1796,7 +1896,7 @@ export function IosDoodlerStudio() {
         rotation = event.shiftKey ? Math.round(rawRotation / 15) * 15 : rawRotation;
       }
 
-      pendingDragUpdateRef.current = {
+      const nextUpdate: PendingLabelDragUpdate = {
         slotId: drag.slotId,
         labelId: drag.labelId,
         mode: drag.mode,
@@ -1806,8 +1906,9 @@ export function IosDoodlerStudio() {
         height,
         rotation,
       };
+      pendingDragUpdateRef.current = nextUpdate;
+      applyDragPreviewToLabelElement(drag, nextUpdate);
 
-      applyPendingDragUpdate();
     };
 
     const onPointerUp = (event: PointerEvent) => {
@@ -1829,10 +1930,6 @@ export function IosDoodlerStudio() {
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
       flushPendingDragUpdate();
-      if (dragFrameRequestRef.current !== null) {
-        cancelAnimationFrame(dragFrameRequestRef.current);
-        dragFrameRequestRef.current = null;
-      }
     };
   }, [mutateSlot]);
 
@@ -1975,6 +2072,13 @@ export function IosDoodlerStudio() {
     if (!editingSlot || !selectedLabel) return;
     mutateSlot(editingSlot.id, (slot) => updateLabel(slot, selectedLabel.id, { color: value }));
   }, [editingSlot, mutateSlot, selectedLabel]);
+
+  const handleEditorColorPreview = useCallback((value: string) => {
+    if (!selectedLabel) return;
+    const labelElement = findLabelOverlayElement(selectedLabel.id);
+    if (!labelElement) return;
+    labelElement.style.color = value;
+  }, [selectedLabel]);
 
   const handleEditorTextChange = useCallback((value: string) => {
     if (!editingSlot || !selectedLabel) return;
@@ -2970,8 +3074,10 @@ export function IosDoodlerStudio() {
                       <div className="flex items-center gap-2">
                         <Input
                           type="color"
-                          value={selectedLabel.color}
-                          onChange={(event) => handleEditorColorChange(event.target.value)}
+                          key={`label-color-${selectedLabel.id}`}
+                          defaultValue={selectedLabel.color}
+                          onInput={(event) => handleEditorColorPreview(event.currentTarget.value)}
+                          onChange={(event) => handleEditorColorChange(event.currentTarget.value)}
                           className="h-9 w-14 cursor-pointer p-0.5"
                         />
                         <Input
