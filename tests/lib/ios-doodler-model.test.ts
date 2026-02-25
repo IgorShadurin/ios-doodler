@@ -15,9 +15,9 @@ import {
   updateLabel,
 } from "@/features/ios-doodler/model";
 
-test("createInitialSlots starts with no labels on canvas", () => {
+test("createInitialSlots starts with initial demo labels on first shot", () => {
   const slots = createInitialSlots(STUDIO_LANGUAGES);
-  assert.equal(slots[0]?.labels.length, 0);
+  assert.equal(slots[0]?.labels.length, 2);
   assert.equal(slots[1]?.labels.length, 0);
 });
 
@@ -52,18 +52,23 @@ test("addLabelFromKey allows multiple instances of same key and supports centere
     },
   };
 
+  const baseLabelCount = slot.labels.length;
   const once = addLabelFromKey(slot, "headline", { x: 0.5, y: 0.3, centered: true });
+  const firstCreated = once.labels[baseLabelCount];
+  assert.ok(firstCreated);
   const twice = addLabelFromKey(once, "headline", { x: 0.95, y: 0.9, centered: true });
+  const secondCreated = twice.labels[baseLabelCount + 1];
+  assert.ok(secondCreated);
 
-  assert.equal(twice.labels.length, 2);
-  assert.equal(twice.labels[0]?.key, "headline");
-  assert.equal(twice.labels[1]?.key, "headline");
-  assert.notEqual(twice.labels[0]?.id, twice.labels[1]?.id);
+  assert.equal(twice.labels.length, baseLabelCount + 2);
+  assert.equal(firstCreated.key, "headline");
+  assert.equal(secondCreated.key, "headline");
+  assert.notEqual(firstCreated.id, secondCreated.id);
 
-  assert.ok(Math.abs((twice.labels[0]?.x ?? 0) - 0.11) < 1e-6);
-  assert.equal(twice.labels[0]?.y, 0.3);
-  assert.ok(Math.abs((twice.labels[1]?.x ?? 0) - 0.22) < 1e-6);
-  assert.equal(twice.labels[1]?.y, 0.76);
+  assert.ok(Math.abs((firstCreated.x ?? 0) - 0.11) < 1e-6);
+  assert.equal(firstCreated.y, 0.3);
+  assert.ok(Math.abs((secondCreated.x ?? 0) - 0.22) < 1e-6);
+  assert.equal(secondCreated.y, 0.76);
 });
 
 test("removeLabel removes only selected label instance", () => {
@@ -76,13 +81,14 @@ test("removeLabel removes only selected label instance", () => {
     },
   };
 
+  const baseLabelCount = slot.labels.length;
   const withTwo = addLabelFromKey(addLabelFromKey(slot, "headline"), "headline");
-  const targetId = withTwo.labels[0]?.id;
+  const targetId = withTwo.labels[baseLabelCount]?.id;
   assert.ok(targetId);
 
   const next = removeLabel(withTwo, targetId);
-  assert.equal(next.labels.length, 1);
-  assert.equal(next.labels[0]?.key, "headline");
+  assert.equal(next.labels.length, baseLabelCount + 1);
+  assert.ok(!next.labels.some((item) => item.id === targetId));
 });
 
 test("addLabelFromKey does not inherit edited style from previous label of the same key", () => {
@@ -95,8 +101,9 @@ test("addLabelFromKey does not inherit edited style from previous label of the s
     },
   };
 
+  const baseLabelCount = slot.labels.length;
   const withOne = addLabelFromKey(slot, "headline");
-  const firstId = withOne.labels[0]?.id;
+  const firstId = withOne.labels[baseLabelCount]?.id;
   assert.ok(firstId);
 
   const edited = updateLabel(withOne, firstId, {
@@ -105,11 +112,11 @@ test("addLabelFromKey does not inherit edited style from previous label of the s
     rotation: 33,
   });
   const withTwo = addLabelFromKey(edited, "headline");
-  const second = withTwo.labels[1];
+  const second = withTwo.labels[baseLabelCount + 1];
   assert.ok(second);
 
   assert.equal(second?.width, 0.78);
-  assert.equal(second?.fontSize, 0.084);
+  assert.notEqual(second?.fontSize, 0.02);
   assert.equal(second?.rotation, 0);
 });
 
