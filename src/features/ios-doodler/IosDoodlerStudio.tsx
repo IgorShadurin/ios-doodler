@@ -57,7 +57,6 @@ import {
   type CropAnchor,
 } from '@/features/ios-doodler/image-fit';
 import {
-  applyTranslationsImport,
   parseTranslationsImportJson,
   type ParsedTranslationsImport,
 } from '@/features/ios-doodler/translations-import';
@@ -1150,8 +1149,20 @@ export function IosDoodlerStudio() {
   const handleApplyImportJson = useCallback(() => {
     if (!parsedImportJson) return;
 
-    const applied = applyTranslationsImport(slots, parsedImportJson);
-    setSlots(applied.slots);
+    const shouldReset = window.confirm(
+      'Apply this JSON now and replace all current text content and labels? This will clear previous edits before import.',
+    );
+    if (!shouldReset) return;
+
+    const importedTextByLanguage = Object.fromEntries(
+      Object.entries(parsedImportJson.translations).map(([code, values]) => [code, { ...values }]),
+    ) as Record<string, Record<string, string>>;
+
+    setSlots((previous) => previous.map((slot) => ({
+      ...slot,
+      labels: [],
+      textByLanguage: importedTextByLanguage,
+    })));
 
     const importedLanguageCodes = orderLanguageCodes(
       Object.keys(parsedImportJson.translations).filter((code) => ALL_LANGUAGE_CODES.includes(code)),
@@ -1165,12 +1176,14 @@ export function IosDoodlerStudio() {
       toast.message('Imported text keys, but no supported App Store language codes were detected for preview chips.');
     }
 
+    setEditingSlotId(null);
+    setSelectedLabelId(null);
     toast.success(
       `Imported ${parsedImportJson.languageCount} languages with ${parsedImportJson.keysPerLanguage} keys each.`,
     );
 
     setIsImportJsonModalOpen(false);
-  }, [parsedImportJson, slots]);
+  }, [parsedImportJson]);
 
   const handleDownloadSlot = useCallback(async (slot: TemplateSlot) => {
     const blob = await renderSlotBlob(slot, activeLanguageCode);
