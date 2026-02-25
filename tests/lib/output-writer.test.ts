@@ -6,9 +6,9 @@ import test from "node:test";
 
 import { buildLanguageGroupedOutputPath, writeArtifactsGroupedByLanguage } from "@/lib/output-writer";
 
-test("buildLanguageGroupedOutputPath groups by language and template", () => {
-  const output = buildLanguageGroupedOutputPath("/tmp/out", "pt-BR", "Main Hero", "main-hero_iphone-6-7_pt-br.png");
-  assert.equal(output, path.join("/tmp/out", "pt-br", "main-hero", "main-hero_iphone-6-7_pt-br.png"));
+test("buildLanguageGroupedOutputPath follows screenshots layout", () => {
+  const output = buildLanguageGroupedOutputPath("/tmp/out", "pt-BR", "main-hero_iphone-6-5_pt-br.png");
+  assert.equal(output, path.join("/tmp/out", "screenshots", "pt-BR", "main-hero_iphone-6-5_pt-br.png"));
 });
 
 test("writeArtifactsGroupedByLanguage writes image buffers to grouped folders", async () => {
@@ -19,21 +19,21 @@ test("writeArtifactsGroupedByLanguage writes image buffers to grouped folders", 
       {
         languageCode: "en",
         templateName: "Feature One",
-        fileName: "feature-one_iphone-6-7_en.png",
+        fileName: "feature-one_iphone-6-5_en.png",
         data: Buffer.from("A"),
       },
       {
         languageCode: "de",
         templateName: "Feature One",
-        fileName: "feature-one_iphone-6-7_de.png",
+        fileName: "feature-one_iphone-6-5_de.png",
         data: Buffer.from("B"),
       },
     ]);
 
     assert.equal(result.length, 2);
 
-    const firstPath = path.join(baseDir, "en", "feature-one", "feature-one_iphone-6-7_en.png");
-    const secondPath = path.join(baseDir, "de", "feature-one", "feature-one_iphone-6-7_de.png");
+    const firstPath = path.join(baseDir, "screenshots", "en", "feature-one_iphone-6-5_en.png");
+    const secondPath = path.join(baseDir, "screenshots", "de", "feature-one_iphone-6-5_de.png");
 
     assert.equal(fs.existsSync(firstPath), true);
     assert.equal(fs.existsSync(secondPath), true);

@@ -64,8 +64,8 @@ test("template-service imports translations as upsert per language", async () =>
     name: "Translations",
     description: null,
     sourceImagePath: "/uploads/templates/demo2.png",
-    sourceWidth: 1290,
-    sourceHeight: 2796,
+    sourceWidth: 1284,
+    sourceHeight: 2778,
   });
 
   const first = await importTranslationsForTemplate(template.id, {

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createZipBuffer } from "@/lib/exporter";
+import { buildScreenshotsRelativePath, createZipBuffer } from "@/lib/exporter";
 import { generateArtifactsForTemplate } from "@/lib/generation-service";
 import { getTemplateWithRelations } from "@/lib/template-service";
 
@@ -35,7 +35,10 @@ export async function POST(
     allLanguages: payload.allLanguages === true,
     languageCodes: payload.languageCodes,
   });
-  const files = artifacts.map((item) => ({ name: item.fileName, data: item.data }));
+  const files = artifacts.map((item) => ({
+    name: buildScreenshotsRelativePath(item.languageCode, item.fileName),
+    data: item.data,
+  }));
 
   if (files.length < 1) {
     return NextResponse.json({ error: "No files were generated. Check presets and languages." }, { status: 400 });

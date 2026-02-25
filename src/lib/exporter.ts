@@ -5,6 +5,8 @@ export type ZipFileInput = {
   data: Buffer;
 };
 
+export const SCREENSHOTS_DIR = "screenshots";
+
 export function sanitizeSegment(value: string): string {
   return value
     .toLowerCase()
@@ -19,6 +21,23 @@ export function buildOutputFilename(templateName: string, presetId: string, lang
   const safePreset = sanitizeSegment(presetId) || "preset";
   const safeLanguage = sanitizeSegment(languageCode) || "lang";
   return `${safeTemplate}_${safePreset}_${safeLanguage}.png`;
+}
+
+function sanitizePathSegment(value: string, fallback: string): string {
+  const normalized = value
+    .trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/^\.+$/, "")
+    .trim();
+
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+export function buildScreenshotsRelativePath(languageCode: string, fileName: string): string {
+  const safeLanguage = sanitizePathSegment(languageCode, "en-US");
+  const safeFileName = sanitizePathSegment(fileName, "screenshot.png");
+  return `${SCREENSHOTS_DIR}/${safeLanguage}/${safeFileName}`;
 }
 
 export async function createZipBuffer(files: ZipFileInput[]): Promise<Buffer> {

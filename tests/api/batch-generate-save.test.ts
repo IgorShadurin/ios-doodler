@@ -111,7 +111,7 @@ test("batch generate save route writes grouped files for multiple templates", as
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           templateIds: [templateOne, templateTwo],
-          presetIds: ["iphone-6-7"],
+          presetIds: ["iphone-6-5"],
           allLanguages: true,
           outputDir,
         }),
@@ -130,8 +130,8 @@ test("batch generate save route writes grouped files for multiple templates", as
     assert.equal(payload.outputDir, outputDir);
     assert.deepEqual(payload.languageCodes, ["de", "en"]);
 
-    const enDir = path.join(outputDir, "en");
-    const deDir = path.join(outputDir, "de");
+    const enDir = path.join(outputDir, "screenshots", "en");
+    const deDir = path.join(outputDir, "screenshots", "de");
     assert.equal(fs.existsSync(enDir), true);
     assert.equal(fs.existsSync(deDir), true);
 

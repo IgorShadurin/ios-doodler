@@ -23,12 +23,13 @@ You upload screenshot templates, place text labels once, and then generate final
 
 ```text
 my-output/
-  en/
-    feature-one/
-      feature-one_iphone-6-7_en.png
-  de/
-    feature-one/
-      feature-one_iphone-6-7_de.png
+  screenshots/
+    en-US/
+      01-shot.png
+      02-shot.png
+    de-DE/
+      01-shot.png
+      02-shot.png
 ```
 
 ## Quick start

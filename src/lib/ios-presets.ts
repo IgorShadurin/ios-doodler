@@ -1,3 +1,8 @@
+import {
+  DEFAULT_SCREENSHOT_HEIGHT,
+  DEFAULT_SCREENSHOT_WIDTH,
+} from "@/lib/defaults";
+
 export type IOSPreset = {
   id: string;
   label: string;
@@ -8,8 +13,14 @@ export type IOSPreset = {
 
 export const IOS_PRESETS: IOSPreset[] = [
   { id: "iphone-6-9", label: "iPhone 6.9\" (1320×2868)", width: 1320, height: 2868, category: "iphone" },
-  { id: "iphone-6-7", label: "iPhone 6.7\" (1290×2796)", width: 1290, height: 2796, category: "iphone" },
-  { id: "iphone-6-5", label: "iPhone 6.5\" (1242×2688)", width: 1242, height: 2688, category: "iphone" },
+  {
+    id: "iphone-6-5",
+    label: `iPhone 6.5" (${DEFAULT_SCREENSHOT_WIDTH}×${DEFAULT_SCREENSHOT_HEIGHT})`,
+    width: DEFAULT_SCREENSHOT_WIDTH,
+    height: DEFAULT_SCREENSHOT_HEIGHT,
+    category: "iphone",
+  },
+  { id: "iphone-6-5-legacy", label: "iPhone 6.5\" Legacy (1242×2688)", width: 1242, height: 2688, category: "iphone" },
   { id: "iphone-6-3", label: "iPhone 6.3\" (1206×2622)", width: 1206, height: 2622, category: "iphone" },
   { id: "iphone-6-1", label: "iPhone 6.1\" (1179×2556)", width: 1179, height: 2556, category: "iphone" },
   { id: "iphone-5-5", label: "iPhone 5.5\" (1242×2208)", width: 1242, height: 2208, category: "iphone" },

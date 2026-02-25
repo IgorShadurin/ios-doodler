@@ -1,4 +1,10 @@
 import { DEFAULT_STUDIO_LANGUAGE, type StudioLanguage } from '@/features/ios-doodler/languages';
+import {
+  DEFAULT_SCREENSHOT_HEIGHT,
+  DEFAULT_SCREENSHOT_WIDTH,
+  DUMMY_TEMPLATE_ASSET_FILENAME,
+  DUMMY_TEMPLATE_ASSET_ID,
+} from '@/lib/defaults';
 
 export type LabelAlign = 'left' | 'center' | 'right';
 export type LabelVerticalAlign = 'top' | 'center' | 'bottom';
@@ -38,8 +44,8 @@ export type TemplateSlot = {
   textByLanguage: Record<string, Record<string, string>>;
 };
 
-const DUMMY_TEMPLATE_WIDTH = 1290;
-const DUMMY_TEMPLATE_HEIGHT = 2796;
+const DUMMY_TEMPLATE_WIDTH = DEFAULT_SCREENSHOT_WIDTH;
+const DUMMY_TEMPLATE_HEIGHT = DEFAULT_SCREENSHOT_HEIGHT;
 const DEFAULT_LABEL_WIDTH = 0.78;
 const DEFAULT_LABEL_Y = 0.16;
 const DEFAULT_FONT_SIZE_PX = 100;
@@ -138,12 +144,12 @@ function getInitialLabelStyle(labelKey: string): Pick<
 export function createDummyTemplateAsset(): TemplateAsset {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${DUMMY_TEMPLATE_WIDTH}" height="${DUMMY_TEMPLATE_HEIGHT}" viewBox="0 0 ${DUMMY_TEMPLATE_WIDTH} ${DUMMY_TEMPLATE_HEIGHT}" fill="none"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#E8F3FF"/><stop offset="1" stop-color="#F9EEF9"/></linearGradient></defs><rect width="${DUMMY_TEMPLATE_WIDTH}" height="${DUMMY_TEMPLATE_HEIGHT}" fill="url(#bg)"/><circle cx="210" cy="530" r="260" fill="#D5E7FF"/><circle cx="1040" cy="730" r="220" fill="#FDDDE7"/></svg>`;
   return {
-    id: 'dummy-template',
+    id: DUMMY_TEMPLATE_ASSET_ID,
     src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`,
     width: DUMMY_TEMPLATE_WIDTH,
     height: DUMMY_TEMPLATE_HEIGHT,
     mimeType: 'image/svg+xml',
-    fileName: 'dummy-template.svg',
+    fileName: DUMMY_TEMPLATE_ASSET_FILENAME,
   };
 }
 

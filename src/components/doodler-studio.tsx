@@ -29,6 +29,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import type { TemplateDto, TemplateLabelDto } from "@/lib/contracts";
+import { DEFAULT_SCREENSHOT_PRESET_ID } from "@/lib/defaults";
 import { IOS_PRESETS } from "@/lib/ios-presets";
 import { applyDragDelta, normalizeLabelDraft } from "@/lib/labels";
 
@@ -100,7 +101,7 @@ export function DoodlerStudio() {
   const [draftLabels, setDraftLabels] = useState<TemplateLabelDto[]>([]);
   const [selectedLabelId, setSelectedLabelId] = useState<string | null>(null);
   const [selectedPreviewLanguage, setSelectedPreviewLanguage] = useState<string>("");
-  const [selectedPresetIds, setSelectedPresetIds] = useState<string[]>(["iphone-6-7"]);
+  const [selectedPresetIds, setSelectedPresetIds] = useState<string[]>([DEFAULT_SCREENSHOT_PRESET_ID]);
   const [selectedTemplateIds, setSelectedTemplateIds] = useState<string[]>([]);
   const [selectedLanguageCodes, setSelectedLanguageCodes] = useState<string[]>([]);
   const [allLanguages, setAllLanguages] = useState<boolean>(true);

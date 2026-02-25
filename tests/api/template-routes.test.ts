@@ -4,6 +4,7 @@ assertTestDatabaseGuard();
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import JSZip from "jszip";
 import sharp from "sharp";
 
 import { POST as createTemplateRoute } from "@/app/api/templates/route";
@@ -101,7 +102,7 @@ test("template API supports create, label save, translation import, and generati
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        presetIds: ["iphone-6-7"],
+        presetIds: ["iphone-6-5"],
         languageCodes: ["en"],
       }),
     }),
@@ -113,4 +114,12 @@ test("template API supports create, label save, translation import, and generati
 
   const bytes = new Uint8Array(await generateResponse.arrayBuffer());
   assert.ok(bytes.byteLength > 1000);
+
+  const zip = await JSZip.loadAsync(bytes);
+  const names = Object.keys(zip.files)
+    .filter((name) => !zip.files[name]?.dir)
+    .sort();
+
+  assert.ok(names.length > 0);
+  assert.equal(names[0]?.startsWith("screenshots/en/"), true);
 });

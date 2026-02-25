@@ -1,5 +1,6 @@
 import sharp from "sharp";
 
+import { SCREENSHOT_OPAQUE_BACKGROUND_HEX } from "@/lib/defaults";
 import { type LabelAlign, type LabelDraft } from "@/lib/labels";
 import { wrapTextToLines } from "@/lib/text-layout";
 
@@ -88,6 +89,8 @@ export async function renderImage(input: RenderImageInput): Promise<Buffer> {
       position: "center",
     })
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+    .flatten({ background: SCREENSHOT_OPAQUE_BACKGROUND_HEX })
+    .removeAlpha()
     .png()
     .toBuffer();
 }

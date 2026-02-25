@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-import { sanitizeSegment } from "@/lib/exporter";
+import { buildScreenshotsRelativePath } from "@/lib/exporter";
 
 export type GeneratedArtifact = {
   languageCode: string;
@@ -9,10 +9,6 @@ export type GeneratedArtifact = {
   fileName: string;
   data: Buffer;
 };
-
-function toSafeFolder(value: string, fallback: string): string {
-  return sanitizeSegment(value) || fallback;
-}
 
 export function resolveOutputDirectoryPath(outputDir: string): string {
   const clean = outputDir.trim();
@@ -26,12 +22,10 @@ export function resolveOutputDirectoryPath(outputDir: string): string {
 export function buildLanguageGroupedOutputPath(
   outputDir: string,
   languageCode: string,
-  templateName: string,
   fileName: string,
 ): string {
-  const safeLanguage = toSafeFolder(languageCode, "lang");
-  const safeTemplate = toSafeFolder(templateName, "template");
-  return path.join(outputDir, safeLanguage, safeTemplate, fileName);
+  const relativePath = buildScreenshotsRelativePath(languageCode, fileName);
+  return path.join(outputDir, ...relativePath.split("/"));
 }
 
 export async function writeArtifactsGroupedByLanguage(
@@ -44,7 +38,6 @@ export async function writeArtifactsGroupedByLanguage(
     const filePath = buildLanguageGroupedOutputPath(
       outputDir,
       artifact.languageCode,
-      artifact.templateName,
       artifact.fileName,
     );
 

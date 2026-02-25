@@ -12,12 +12,12 @@ import {
 } from "@/features/ios-doodler/image-fit";
 
 test("hasMatchingAspectRatio accepts equal ratio with different sizes", () => {
-  assert.equal(hasMatchingAspectRatio(645, 1398, 1290, 2796), true);
-  assert.equal(hasMatchingAspectRatio(1242, 2688, 1290, 2796), true);
+  assert.equal(hasMatchingAspectRatio(642, 1389, 1284, 2778), true);
+  assert.equal(hasMatchingAspectRatio(1242, 2688, 1284, 2778), true);
 });
 
 test("hasMatchingAspectRatio rejects clearly different ratio", () => {
-  assert.equal(hasMatchingAspectRatio(1200, 1200, 1290, 2796), false);
+  assert.equal(hasMatchingAspectRatio(1200, 1200, 1284, 2778), false);
 });
 
 test("computeCropRect crops wide image horizontally with left/center/right anchors", () => {
@@ -51,7 +51,7 @@ test("getCropAnchorsForAspectMismatch exposes anchor options by mismatch directi
     "center",
     "bottom",
   ]);
-  assert.deepEqual(getCropAnchorsForAspectMismatch(1290, 2796, 645, 1398), [
+  assert.deepEqual(getCropAnchorsForAspectMismatch(1284, 2778, 642, 1389), [
     "center",
   ]);
 });

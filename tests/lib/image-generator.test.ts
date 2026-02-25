@@ -21,7 +21,7 @@ test("renderImage outputs png with target dimensions", async () => {
         width: 600,
         height: 1200,
         channels: 4,
-        background: { r: 20, g: 20, b: 20, alpha: 1 },
+        background: { r: 20, g: 20, b: 20, alpha: 0 },
       },
     })
       .png()
@@ -29,8 +29,8 @@ test("renderImage outputs png with target dimensions", async () => {
 
     const output = await renderImage({
       templatePath: sourcePath,
-      outputWidth: 1290,
-      outputHeight: 2796,
+      outputWidth: 1284,
+      outputHeight: 2778,
       labels: [
         {
           key: "title",
@@ -51,9 +51,10 @@ test("renderImage outputs png with target dimensions", async () => {
 
     const metadata = await sharp(output).metadata();
 
-    assert.equal(metadata.width, 1290);
-    assert.equal(metadata.height, 2796);
+    assert.equal(metadata.width, 1284);
+    assert.equal(metadata.height, 2778);
     assert.equal(metadata.format, "png");
+    assert.equal(metadata.hasAlpha, false);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }

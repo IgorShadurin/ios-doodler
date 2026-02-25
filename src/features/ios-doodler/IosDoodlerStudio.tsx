@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
+import JSZip from 'jszip';
 import {
   Monitor,
   Languages,
@@ -33,6 +34,7 @@ import {
   addLabelFromKey,
   applyUploadedAsset,
   createEmptySlot,
+  createDummyTemplateAsset,
   createInitialSlots,
   listSlotLabelKeys,
   removeLabel,
@@ -58,6 +60,17 @@ import {
   parseTranslationsImportJson,
   type ParsedTranslationsImport,
 } from '@/features/ios-doodler/translations-import';
+import {
+  DEFAULT_SCREENSHOT_ASPECT_RATIO_CSS,
+  DEFAULT_SCREENSHOT_HEIGHT,
+  DEFAULT_SCREENSHOT_WIDTH,
+  DUMMY_TEMPLATE_ASSET_FILENAME,
+  DUMMY_TEMPLATE_ASSET_ID,
+  LEGACY_DEFAULT_SCREENSHOT_HEIGHT,
+  LEGACY_DEFAULT_SCREENSHOT_WIDTH,
+  SCREENSHOT_OPAQUE_BACKGROUND_HEX,
+} from '@/lib/defaults';
+import { buildScreenshotsRelativePath } from '@/lib/exporter';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -223,8 +236,6 @@ const LEGACY_STORAGE_KEY = 'ios-doodler-studio-v3';
 const ALL_LANGUAGE_CODES = STUDIO_LANGUAGES.map((language) => language.code);
 const LANGUAGE_ORDER_INDEX = new Map(ALL_LANGUAGE_CODES.map((code, index) => [code, index]));
 const SOURCE_CODE_URL = 'https://github.com/IgorShadurin/ios-doodler';
-const DEFAULT_SLOT_WIDTH = 1290;
-const DEFAULT_SLOT_HEIGHT = 2796;
 const LABEL_KEY_DRAG_MIME = 'text/x-ios-doodler-label-key';
 const MIN_FONT_SIZE_PX = 6;
 const PERSISTENCE_DEBOUNCE_MS = 220;
@@ -269,6 +280,10 @@ function toPngFileName(fileName: string): string {
     return `${fileName}.png`;
   }
   return `${fileName.slice(0, dotIndex)}.png`;
+}
+
+function toFastlaneShotFileName(order: number): string {
+  return `${String(order).padStart(2, '0')}-shot.png`;
 }
 
 function cropRectPxToPreview(rect: CropRectPx, sourceWidth: number, sourceHeight: number) {
@@ -504,6 +519,8 @@ async function fitAssetToTarget(
   if (!context) {
     throw new Error('failed to create canvas context');
   }
+  context.fillStyle = SCREENSHOT_OPAQUE_BACKGROUND_HEX;
+  context.fillRect(0, 0, canvas.width, canvas.height);
 
   const resolvedCropRect = cropRect ?? computeCropRect(
     sourceAsset.width,
@@ -628,6 +645,8 @@ async function renderSlotBlob(slot: TemplateSlot, languageCode: string): Promise
   const context = canvas.getContext('2d');
   if (!context) return null;
 
+  context.fillStyle = SCREENSHOT_OPAQUE_BACKGROUND_HEX;
+  context.fillRect(0, 0, canvas.width, canvas.height);
   context.drawImage(image, 0, 0, asset.width, asset.height);
 
   for (const label of slot.labels) {
@@ -706,7 +725,7 @@ function LabelOverlay({
   const frameElementRef = useRef<HTMLDivElement | null>(null);
   const [loadedImageSrc, setLoadedImageSrc] = useState<string | null>(null);
   const [isKeyDragOver, setIsKeyDragOver] = useState(false);
-  const placeholderAspectRatio = '1290 / 2796';
+  const placeholderAspectRatio = DEFAULT_SCREENSHOT_ASPECT_RATIO_CSS;
   const canDropLabelKeys = Boolean(showGuides && onDropLabelKey);
 
   const handleLabelKeyDrop = useCallback((event: React.DragEvent<HTMLDivElement>) => {
@@ -955,10 +974,42 @@ function LabelOverlay({
 
 function normalizeLoadedSlots(value: unknown): TemplateSlot[] | null {
   if (!Array.isArray(value)) return null;
+  const latestDummyTemplateAsset = createDummyTemplateAsset();
+  const migrateLegacyAsset = (asset: TemplateAsset | null | undefined): TemplateAsset | null => {
+    if (!asset || typeof asset !== 'object') return null;
+    const hasLegacyDefaultDimensions =
+      asset.width === LEGACY_DEFAULT_SCREENSHOT_WIDTH
+      && asset.height === LEGACY_DEFAULT_SCREENSHOT_HEIGHT;
+    const isLegacyDummyTemplate =
+      asset.id === DUMMY_TEMPLATE_ASSET_ID
+      && asset.fileName === DUMMY_TEMPLATE_ASSET_FILENAME
+      && hasLegacyDefaultDimensions;
+
+    if (isLegacyDummyTemplate) {
+      return { ...latestDummyTemplateAsset };
+    }
+
+    if (hasLegacyDefaultDimensions) {
+      return {
+        ...asset,
+        width: DEFAULT_SCREENSHOT_WIDTH,
+        height: DEFAULT_SCREENSHOT_HEIGHT,
+      };
+    }
+
+    return asset;
+  };
   const parsed = value
     .filter((entry) => entry && typeof entry === 'object')
     .map((entry) => {
       const item = entry as TemplateSlot;
+      const normalizedBaseAsset = migrateLegacyAsset(item.baseAsset);
+      const normalizedLanguageOverrides = Object.fromEntries(
+        Object.entries(item.languageOverrides ?? {}).flatMap(([languageCode, rawAsset]) => {
+          const normalizedAsset = migrateLegacyAsset(rawAsset as TemplateAsset | null | undefined);
+          return normalizedAsset ? [[languageCode, normalizedAsset] as const] : [];
+        }),
+      );
       const parsedLabels = Array.isArray(item.labels)
         ? item.labels.map((label) => ({
           ...label,
@@ -991,7 +1042,8 @@ function normalizeLoadedSlots(value: unknown): TemplateSlot[] | null {
         && parsedLabels.every((label) => label.key === 'headline' || label.key === 'subtitle');
       return {
         ...item,
-        languageOverrides: item.languageOverrides ?? {},
+        baseAsset: normalizedBaseAsset,
+        languageOverrides: normalizedLanguageOverrides,
         labels: isLegacyDefaultLabelSet ? [] : parsedLabels,
         textByLanguage: item.textByLanguage ?? {},
       };
@@ -1399,8 +1451,8 @@ export function IosDoodlerStudio() {
       }
 
       const targetAsset = slot.baseAsset ?? resolveAssetForLanguage(slot, activeLanguageCode);
-      const targetWidth = targetAsset?.width ?? DEFAULT_SLOT_WIDTH;
-      const targetHeight = targetAsset?.height ?? DEFAULT_SLOT_HEIGHT;
+      const targetWidth = targetAsset?.width ?? DEFAULT_SCREENSHOT_WIDTH;
+      const targetHeight = targetAsset?.height ?? DEFAULT_SCREENSHOT_HEIGHT;
 
     if (hasMatchingAspectRatio(sourceAsset.width, sourceAsset.height, targetWidth, targetHeight)) {
       const normalizedAsset = await fitAssetToTarget(sourceAsset, targetWidth, targetHeight);
@@ -1691,7 +1743,7 @@ export function IosDoodlerStudio() {
           const blob = await renderSlotBlob(slot, languageCode);
           if (!blob) continue;
           files.push({
-            fileName: `${slot.order}-shot.png`,
+            fileName: toFastlaneShotFileName(slot.order),
             blob,
           });
         }
@@ -1707,13 +1759,22 @@ export function IosDoodlerStudio() {
       }
 
       const pickerWindow = window as Window & {
-        showDirectoryPicker?: (options?: { mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>;
+        showDirectoryPicker?: (options?: {
+          mode?: 'read' | 'readwrite';
+          startIn?: 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos';
+          id?: string;
+        }) => Promise<FileSystemDirectoryHandle>;
       };
       if (pickerWindow.showDirectoryPicker) {
-        const rootHandle = await pickerWindow.showDirectoryPicker({ mode: 'readwrite' });
+        const rootHandle = await pickerWindow.showDirectoryPicker({
+          mode: 'readwrite',
+          startIn: 'downloads',
+          id: 'ios-doodler-screenshots-export',
+        });
+        const screenshotsDir = await rootHandle.getDirectoryHandle('screenshots', { create: true });
         let writtenCount = 0;
         for (const languageGroup of batch) {
-          const languageDir = await rootHandle.getDirectoryHandle(languageGroup.languageCode, { create: true });
+          const languageDir = await screenshotsDir.getDirectoryHandle(languageGroup.languageCode, { create: true });
           for (const file of languageGroup.files) {
             const fileHandle = await languageDir.getFileHandle(file.fileName, { create: true });
             const writable = await fileHandle.createWritable();
@@ -1722,21 +1783,27 @@ export function IosDoodlerStudio() {
             writtenCount += 1;
           }
         }
-        toast.success(`Exported ${writtenCount} screenshots grouped by language.`);
+        toast.success(`Exported ${writtenCount} screenshots to screenshots/.`);
         return;
       }
 
+      const zip = new JSZip();
       let total = 0;
-      let delayMs = 0;
       for (const languageGroup of batch) {
         for (const file of languageGroup.files) {
-          const downloadName = `${languageGroup.languageCode}-${file.fileName}`;
-          window.setTimeout(() => triggerBlobDownload(file.blob, downloadName), delayMs);
-          delayMs += 120;
+          const relativePath = buildScreenshotsRelativePath(languageGroup.languageCode, file.fileName);
+          zip.file(relativePath, file.blob);
           total += 1;
         }
       }
-      toast.success(`Exported ${total} screenshots. Directory grouping is available in Chromium browsers.`);
+
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 9 },
+      });
+      triggerBlobDownload(zipBlob, 'screenshots.zip');
+      toast.success(`Exported ${total} screenshots as ZIP in screenshots/<locale>/ format.`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         toast.message('Export cancelled.');
