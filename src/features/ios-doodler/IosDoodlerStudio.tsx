@@ -439,7 +439,6 @@ function LabelOverlay({
   showGuides,
   selectedLabelId,
   onLabelPointerDown,
-  onDeleteLabel,
   onDropLabelKey,
   onEmptyUpload,
   fitMode = 'width',
@@ -462,7 +461,6 @@ function LabelOverlay({
       resizeEdge?: ResizeEdge;
     },
   ) => void;
-  onDeleteLabel?: (labelId: string) => void;
   onDropLabelKey?: (labelKey: string, position: { x: number; y: number }) => void;
   onEmptyUpload?: () => void;
   fitMode?: 'width' | 'contain';
@@ -1422,7 +1420,7 @@ export function IosDoodlerStudio() {
 
     const onPointerMove = (event: PointerEvent) => {
       const drag = dragRef.current;
-      if (!drag) return;
+      if (!drag || drag.pointerId !== event.pointerId) return;
 
       let x: number | undefined;
       let y: number | undefined;
@@ -1501,6 +1499,8 @@ export function IosDoodlerStudio() {
 
     const onPointerUp = (event: PointerEvent) => {
       const drag = dragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+
       if (drag?.pointerCaptureTarget && drag.pointerCaptureTarget.hasPointerCapture?.(event.pointerId)) {
         drag.pointerCaptureTarget.releasePointerCapture(event.pointerId);
       }
@@ -1516,6 +1516,10 @@ export function IosDoodlerStudio() {
       window.removeEventListener('pointerup', onPointerUp);
       window.removeEventListener('pointercancel', onPointerUp);
       flushPendingDragUpdate();
+      if (dragFrameRequestRef.current !== null) {
+        cancelAnimationFrame(dragFrameRequestRef.current);
+        dragFrameRequestRef.current = null;
+      }
     };
   }, [mutateSlot]);
 
@@ -2214,20 +2218,19 @@ export function IosDoodlerStudio() {
                     }}
                   />
                 </div>
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  <div className="flex h-full w-full items-center justify-center overflow-auto border border-slate-200 bg-slate-50/40 p-2 sm:p-3">
-                    <LabelOverlay
-                      slot={editingSlot}
-                      languageCode={activeLanguageCode}
-                      showGuides
-                      selectedLabelId={selectedLabel?.id ?? null}
-                      fitMode="contain"
-                      onLabelPointerDown={handleEditorLabelPointerDown}
-                      onDeleteLabel={handleEditorRemoveLabel}
-                      onDropLabelKey={handleEditorAddLabelFromKey}
-                      onEmptyUpload={handleEditorImagePick}
-                    />
-                  </div>
+              <div className="min-h-0 flex-1 overflow-hidden">
+                <div className="flex h-full w-full items-center justify-center overflow-auto border border-slate-200 bg-slate-50/40 p-2 sm:p-3">
+                  <LabelOverlay
+                    slot={editingSlot}
+                    languageCode={activeLanguageCode}
+                    showGuides
+                    selectedLabelId={selectedLabel?.id ?? null}
+                    fitMode="contain"
+                    onLabelPointerDown={handleEditorLabelPointerDown}
+                    onDropLabelKey={handleEditorAddLabelFromKey}
+                    onEmptyUpload={handleEditorImagePick}
+                  />
+                </div>
                 </div>
               </div>
 
