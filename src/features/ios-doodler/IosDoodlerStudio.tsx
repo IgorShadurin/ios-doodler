@@ -29,6 +29,7 @@ import {
   AlignEndVertical,
   Star,
   ChevronDown,
+  RefreshCw,
 } from 'lucide-react';
 import {
   addLabelFromKey,
@@ -455,6 +456,33 @@ function createSlotsFromImport(textByLanguage: Record<string, Record<string, str
   );
   first.textByLanguage = normalized;
   return [first];
+}
+
+function cloneLanguageTextMap(
+  textByLanguage: Record<string, Record<string, string>>,
+): Record<string, Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(textByLanguage).map(([languageCode, values]) => [
+      languageCode,
+      { ...values },
+    ]),
+  );
+}
+
+function listUsedScreenshotFieldKeys(slots: TemplateSlot[]): string[] {
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+
+  for (const slot of slots) {
+    for (const label of slot.labels) {
+      const key = label.key.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(key);
+    }
+  }
+
+  return ordered;
 }
 
 function orderLanguageCodes(codes: string[]): string[] {
@@ -1176,6 +1204,7 @@ export function IosDoodlerStudio() {
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
   const editorFileInputRef = useRef<HTMLInputElement | null>(null);
   const importJsonInputRef = useRef<HTMLInputElement | null>(null);
+  const refreshImportJsonInputRef = useRef<HTMLInputElement | null>(null);
   const dragRef = useRef<LabelDragState | null>(null);
   const pendingDragUpdateRef = useRef<PendingLabelDragUpdate | null>(null);
   const cropDragRef = useRef<CropDragState | null>(null);
@@ -1739,6 +1768,99 @@ export function IosDoodlerStudio() {
       setImportJsonError('Failed to read the JSON file. Please try another file.');
     }
   }, []);
+
+  const handleRefreshJsonFilePick = useCallback(() => {
+    refreshImportJsonInputRef.current?.click();
+  }, []);
+
+  const applyRefreshedImportJson = useCallback(async (parsed: ParsedTranslationsImport, sourceFileName: string) => {
+    const requiredKeys = listUsedScreenshotFieldKeys(slots);
+    const sampleLanguage = Object.values(parsed.translations)[0] ?? {};
+    const incomingKeyList = Object.keys(sampleLanguage)
+      .map((key) => key.trim())
+      .filter((key) => key.length > 0);
+    const incomingKeys = new Set(
+      incomingKeyList,
+    );
+    const missingKeys = requiredKeys.filter((key) => !incomingKeys.has(key));
+
+    if (missingKeys.length > 0) {
+      const preview = missingKeys.slice(0, 5).join(', ');
+      const suffix = missingKeys.length > 5 ? ', ...' : '';
+      toast.error(
+        `JSON is missing ${missingKeys.length} required screenshot field(s): ${preview}${suffix}`,
+      );
+      const requiredPreview = requiredKeys.slice(0, 8).join(', ');
+      const incomingPreview = incomingKeyList.slice(0, 8).join(', ');
+      toast.message(
+        `Expected keys: ${requiredPreview || '(none)'} | File keys: ${incomingPreview || '(none)'}`,
+      );
+      return;
+    }
+
+    const importedTextByLanguage = cloneLanguageTextMap(parsed.translations);
+    const nextSlots = slots.map((slot) => ({
+      ...slot,
+      textByLanguage: cloneLanguageTextMap(importedTextByLanguage),
+    }));
+
+    const importedLanguageCodes = orderLanguageCodes(
+      Object.keys(importedTextByLanguage).filter((code) => ALL_LANGUAGE_CODES.includes(code)),
+    );
+    const nextEnabledLanguages = importedLanguageCodes.length > 0
+      ? importedLanguageCodes
+      : enabledLanguages;
+    const nextActiveLanguageCode = importedLanguageCodes.length > 0
+      ? (importedLanguageCodes.includes(activeLanguageCode) ? activeLanguageCode : importedLanguageCodes[0] ?? DEFAULT_STUDIO_LANGUAGE)
+      : activeLanguageCode;
+
+    setSlots(nextSlots);
+    setImportJsonFileName(sourceFileName);
+    setImportJsonError(null);
+    setParsedImportJson(parsed);
+    if (importedLanguageCodes.length > 0) {
+      setEnabledLanguages(nextEnabledLanguages);
+      setActiveLanguageCode(nextActiveLanguageCode);
+    } else {
+      toast.message('JSON applied, but no supported App Store language codes were detected for preview chips.');
+    }
+
+    try {
+      await saveIosDoodlerState({
+        slots: nextSlots,
+        enabledLanguages: nextEnabledLanguages,
+        activeLanguageCode: nextActiveLanguageCode,
+        favoriteFonts,
+      });
+      window.localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'unknown database error';
+      console.warn('Failed to persist refreshed JSON import to browser DB:', message);
+      toast.error('JSON was applied, but saving to browser database failed.');
+      return;
+    }
+
+    toast.success(
+      `Re-applied ${parsed.languageCount} languages from ${sourceFileName}.`,
+    );
+  }, [activeLanguageCode, enabledLanguages, favoriteFonts, slots]);
+
+  const handleRefreshJsonFileChange = useCallback(async (file: File | null) => {
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const parsed = parseTranslationsImportJson(text);
+      if (!parsed.ok) {
+        toast.error(`Invalid JSON: ${parsed.error}`);
+        return;
+      }
+
+      await applyRefreshedImportJson(parsed.value, file.name);
+    } catch {
+      toast.error('Failed to read the JSON file. Please try another file.');
+    }
+  }, [applyRefreshedImportJson]);
 
   const handleApplyImportJson = useCallback(() => {
     if (!parsedImportJson) return;
@@ -2391,15 +2513,41 @@ export function IosDoodlerStudio() {
 
           <div className="grid grid-cols-[260px_minmax(0,1fr)] items-start gap-4">
             <aside className="space-y-2 rounded-xl border border-slate-200 bg-white/80 p-3">
-              <Button
-                variant="outline"
-                className="w-full gap-2 border-sky-200 bg-sky-50/60 text-slate-800"
-                onClick={handleOpenImportJsonModal}
-                disabled={isLoadingPersistedState}
-              >
-                <FileJson className="h-4 w-4" />
-                Import JSON
-              </Button>
+              <div className="flex w-full items-center gap-2">
+                <Button
+                  variant="outline"
+                  className="min-w-0 flex-1 gap-2 border-sky-200 bg-sky-50/60 text-slate-800"
+                  onClick={handleOpenImportJsonModal}
+                  disabled={isLoadingPersistedState}
+                >
+                  <FileJson className="h-4 w-4" />
+                  Import JSON
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="shrink-0 border-sky-200 bg-sky-50/60 text-slate-800"
+                  onClick={handleRefreshJsonFilePick}
+                  disabled={isLoadingPersistedState}
+                  title="Refresh JSON and re-apply to current screenshots"
+                  aria-label="Refresh JSON and re-apply"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+              <input
+                ref={refreshImportJsonInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={async (event) => {
+                  const input = event.currentTarget;
+                  const file = input.files?.[0] ?? null;
+                  input.value = '';
+                  await handleRefreshJsonFileChange(file);
+                }}
+              />
 
               <Popover>
                 <PopoverTrigger asChild>
@@ -2473,15 +2621,21 @@ export function IosDoodlerStudio() {
                   orderedEnabledLanguages.map((code) => {
                     const language = STUDIO_LANGUAGES.find((item) => item.code === code);
                     if (!language) return null;
+                    const isActiveLanguage = activeLanguageCode === language.code;
                     return (
                       <Button
                         key={language.code}
                         size="sm"
-                        variant={activeLanguageCode === language.code ? 'default' : 'outline'}
+                        variant={isActiveLanguage ? 'default' : 'outline'}
                         className="h-9 w-full justify-start whitespace-nowrap"
                         onClick={() => handleSwitchLanguage(language.code)}
                       >
-                        {language.flag} {language.name}
+                        <span className="truncate">
+                          {language.flag} {language.name}
+                        </span>
+                        <span className={cn('ml-auto pl-2 text-[11px]', isActiveLanguage ? 'text-white/85' : 'text-slate-500')}>
+                          {language.code}
+                        </span>
                       </Button>
                     );
                   })
