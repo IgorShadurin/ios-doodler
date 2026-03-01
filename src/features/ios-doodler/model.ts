@@ -54,6 +54,8 @@ const DEFAULT_LABEL_WIDTH = 1170 / DUMMY_TEMPLATE_WIDTH;
 const DEFAULT_LABEL_HEIGHT = 810 / DUMMY_TEMPLATE_HEIGHT;
 const DEFAULT_FONT_SIZE_PX = 141;
 const DEFAULT_FONT_SIZE = DEFAULT_FONT_SIZE_PX / DUMMY_TEMPLATE_WIDTH;
+const DEFAULT_PROJECT_LABEL_COLOR = '#000000';
+const DEFAULT_BOTTOM_LABEL_Y = 1 - DEFAULT_LABEL_HEIGHT - DEFAULT_LABEL_Y;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -208,9 +210,23 @@ export function createInitialSlots(languages: StudioLanguage[]): TemplateSlot[] 
   const defaultLabelKeys = ['headline', 'subtitle'];
   first.baseAsset = createDummyTemplateAsset();
   first.textByLanguage = createDummyTextByLanguage(defaultLabelKeys, languages);
+  const topLabel = createInitialLabel('label-initial-headline', 'headline', DEFAULT_LABEL_X, DEFAULT_LABEL_Y);
+  const bottomLabel = createInitialLabel('label-initial-subtitle', 'subtitle', DEFAULT_LABEL_X, DEFAULT_BOTTOM_LABEL_Y);
   first.labels = [
-    createInitialLabel('label-initial-headline', 'headline', DEFAULT_LABEL_X, DEFAULT_LABEL_Y),
-    createInitialLabel('label-initial-subtitle', 'subtitle', DEFAULT_LABEL_X, DEFAULT_LABEL_Y),
+    {
+      ...topLabel,
+      color: DEFAULT_PROJECT_LABEL_COLOR,
+      fontFamily: 'Futura',
+      fontWeight: 800,
+      textCase: 'uppercase',
+    },
+    {
+      ...bottomLabel,
+      color: DEFAULT_PROJECT_LABEL_COLOR,
+      fontFamily: 'Futura',
+      fontWeight: 800,
+      textCase: 'uppercase',
+    },
   ];
 
   const second = createEmptySlot(2);
