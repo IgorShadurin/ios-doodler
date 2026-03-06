@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import Image from 'next/image';
 import {
   Monitor,
@@ -35,6 +36,7 @@ import {
   Undo2,
   Redo2,
   FolderPlus,
+  Images,
 } from 'lucide-react';
 import {
   addLabelFromKey,
@@ -593,8 +595,25 @@ function toCanvasFontFamily(fontFamily: string): string {
 }
 
 type ProjectPickerWindow = Window & {
-  showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
-  showOpenFilePicker?: (options?: OpenFilePickerOptions) => Promise<FileSystemFileHandle[]>;
+  showSaveFilePicker?: (options?: ProjectSaveFilePickerOptions) => Promise<FileSystemFileHandle>;
+  showOpenFilePicker?: (options?: ProjectOpenFilePickerOptions) => Promise<FileSystemFileHandle[]>;
+};
+
+type ProjectPickerFileType = {
+  description?: string;
+  accept: Record<string, string[]>;
+};
+
+type ProjectSaveFilePickerOptions = {
+  id?: string;
+  suggestedName?: string;
+  types?: ProjectPickerFileType[];
+};
+
+type ProjectOpenFilePickerOptions = {
+  id?: string;
+  multiple?: boolean;
+  types?: ProjectPickerFileType[];
 };
 
 function normalizeProjectFileName(fileName: string): string {
@@ -603,6 +622,12 @@ function normalizeProjectFileName(fileName: string): string {
   return trimmed.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)
     ? trimmed
     : `${trimmed}${PROJECT_FILE_EXTENSION}`;
+}
+
+function normalizeLabelTextCase(raw: unknown): LabelTextCase {
+  return raw === 'uppercase' || raw === 'lowercase' || raw === 'default'
+    ? raw
+    : 'default';
 }
 
 function useElementSize<T extends HTMLElement>() {
@@ -1297,9 +1322,9 @@ function normalizeLoadedSlots(value: unknown): TemplateSlot[] | null {
 
     return asset;
   };
-  const parsed = value
+  const parsed: TemplateSlot[] = value
     .filter((entry) => entry && typeof entry === 'object')
-    .map((entry) => {
+    .map((entry): TemplateSlot => {
       const item = entry as TemplateSlot;
       const normalizedBaseAsset = migrateLegacyAsset(item.baseAsset);
       const normalizedLanguageOverrides = Object.fromEntries(
@@ -1308,7 +1333,7 @@ function normalizeLoadedSlots(value: unknown): TemplateSlot[] | null {
           return normalizedAsset ? [[languageCode, normalizedAsset] as const] : [];
         }),
       );
-      const parsedLabels = Array.isArray(item.labels)
+      const parsedLabels: TemplateSlot['labels'] = Array.isArray(item.labels)
         ? item.labels.map((label) => ({
           ...label,
           height:
@@ -1332,12 +1357,7 @@ function normalizeLoadedSlots(value: unknown): TemplateSlot[] | null {
           rotation: typeof (label as { rotation?: unknown }).rotation === 'number'
             ? (label as { rotation: number }).rotation
             : 0,
-          textCase: (() => {
-            const raw = (label as { textCase?: unknown }).textCase;
-            return raw === 'uppercase' || raw === 'lowercase' || raw === 'default'
-              ? raw
-              : 'default';
-          })(),
+          textCase: normalizeLabelTextCase((label as { textCase?: unknown }).textCase),
         }))
         : [];
       const isLegacyDefaultLabelSet =
@@ -3144,6 +3164,12 @@ export function IosDoodlerStudio() {
             <Button variant="outline" onClick={handleResetSlots} className="gap-2">
               <RotateCcw className="h-4 w-4" />
               Reset All
+            </Button>
+            <Button asChild variant="outline" className="gap-2">
+              <Link href="/preview-images">
+                <Images className="h-4 w-4" />
+                Preview Images
+              </Link>
             </Button>
           </div>
 

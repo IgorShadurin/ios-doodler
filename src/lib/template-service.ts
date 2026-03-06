@@ -49,7 +49,7 @@ export async function createTemplate(input: CreateTemplateInput) {
   });
 }
 
-export async function listTemplates() {
+export async function listTemplates(): Promise<TemplateWithRelations[]> {
   return prisma.template.findMany({
     orderBy: { updatedAt: "desc" },
     include: {

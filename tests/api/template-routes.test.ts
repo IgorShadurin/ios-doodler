@@ -34,11 +34,12 @@ test("template API supports create, label save, translation import, and generati
   })
     .png()
     .toBuffer();
+  const imageBytes = Uint8Array.from(imageBuffer);
 
   const form = new FormData();
   form.set("name", "Route Test Template");
   form.set("description", "route test");
-  form.set("image", new File([imageBuffer], "template.png", { type: "image/png" }));
+  form.set("image", new File([imageBytes], "template.png", { type: "image/png" }));
 
   const createResponse = await createTemplateRoute(
     new Request("http://localhost/api/templates", {

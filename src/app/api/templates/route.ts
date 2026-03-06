@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { createTemplate, listTemplates } from "@/lib/template-service";
+import { createTemplate, listTemplates, type TemplateWithRelations } from "@/lib/template-service";
 import { toTemplateDto } from "@/lib/template-dto";
 import { saveTemplateUpload } from "@/lib/storage";
 
@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const templates = await listTemplates();
   return NextResponse.json({
-    items: templates.map((template) => toTemplateDto(template)),
+    items: templates.map((template: TemplateWithRelations) => toTemplateDto(template)),
   });
 }
 

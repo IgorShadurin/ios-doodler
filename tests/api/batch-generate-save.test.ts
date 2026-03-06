@@ -32,11 +32,12 @@ async function createTemplate(name: string): Promise<string> {
   })
     .png()
     .toBuffer();
+  const imageBytes = Uint8Array.from(imageBuffer);
 
   const form = new FormData();
   form.set("name", name);
   form.set("description", "batch test");
-  form.set("image", new File([imageBuffer], `${name}.png`, { type: "image/png" }));
+  form.set("image", new File([imageBytes], `${name}.png`, { type: "image/png" }));
 
   const createResponse = await createTemplateRoute(
     new Request("http://localhost/api/templates", {
