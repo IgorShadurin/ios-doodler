@@ -1,18 +1,13 @@
-import type { Template, TemplateLabel, TranslationLocale } from "@prisma/client";
-
 import { buildOutputFilename } from "@/lib/exporter";
 import { buildGenerationPlan } from "@/lib/generation-plan";
 import { renderImage } from "@/lib/image-generator";
 import { getPresetById } from "@/lib/ios-presets";
 import { type GeneratedArtifact } from "@/lib/output-writer";
 import { resolvePublicAssetPath } from "@/lib/storage";
-import { fromDbAlign } from "@/lib/template-service";
+import { fromDbAlign, type TemplateWithRelations } from "@/lib/template-service";
 import { parseEntriesJson } from "@/lib/translations";
 
-export type HydratedTemplate = Template & {
-  labels: TemplateLabel[];
-  translations: TranslationLocale[];
-};
+export type HydratedTemplate = TemplateWithRelations;
 
 function dedupe(values: string[]): string[] {
   const seen = new Set<string>();

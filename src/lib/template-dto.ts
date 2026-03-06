@@ -1,13 +1,8 @@
-import type { Template, TemplateLabel, TranslationLocale } from "@prisma/client";
-
 import type { TemplateDto } from "@/lib/contracts";
-import { fromDbAlign } from "@/lib/template-service";
+import { fromDbAlign, type TemplateWithRelations } from "@/lib/template-service";
 import { parseEntriesJson } from "@/lib/translations";
 
-type HydratedTemplate = Template & {
-  labels: TemplateLabel[];
-  translations: TranslationLocale[];
-};
+type HydratedTemplate = TemplateWithRelations;
 
 export function toTemplateDto(template: HydratedTemplate): TemplateDto {
   return {
