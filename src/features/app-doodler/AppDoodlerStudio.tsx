@@ -502,18 +502,6 @@ function rotateCropRectByHandle(
   return clampCropRectByRatio(next, sourceWidth, sourceHeight, targetRatio);
 }
 
-function createSlotsFromImport(textByLanguage: Record<string, Record<string, string>>): TemplateSlot[] {
-  const first = createEmptySlot(1);
-  const normalized = Object.fromEntries(
-    Object.entries(textByLanguage).map(([code, values]) => [
-      code,
-      Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value])),
-    ]),
-  );
-  first.textByLanguage = normalized;
-  return [first];
-}
-
 function cloneLanguageTextMap(
   textByLanguage: Record<string, Record<string, string>>,
 ): Record<string, Record<string, string>> {
@@ -539,6 +527,26 @@ function listUsedScreenshotFieldKeys(slots: TemplateSlot[]): string[] {
   }
 
   return ordered;
+}
+
+function applyImportedTextToSlots(
+  currentSlots: TemplateSlot[],
+  textByLanguage: Record<string, Record<string, string>>,
+  options?: { clearLabels?: boolean },
+): TemplateSlot[] {
+  const clearLabels = options?.clearLabels ?? false;
+
+  if (currentSlots.length === 0) {
+    const first = createEmptySlot(1);
+    first.textByLanguage = cloneLanguageTextMap(textByLanguage);
+    return [first];
+  }
+
+  return currentSlots.map((slot) => ({
+    ...slot,
+    labels: clearLabels ? [] : slot.labels,
+    textByLanguage: cloneLanguageTextMap(textByLanguage),
+  }));
 }
 
 function orderLanguageCodes(codes: string[]): string[] {
@@ -1434,7 +1442,6 @@ export function AppDoodlerStudio() {
   const [isFontPickerOpen, setIsFontPickerOpen] = useState(false);
   const [importJsonFileName, setImportJsonFileName] = useState<string | null>(null);
   const [importJsonError, setImportJsonError] = useState<string | null>(null);
-  const [parsedImportJson, setParsedImportJson] = useState<ParsedTranslationsImport | null>(null);
   const [projectFileHandle, setProjectFileHandle] = useState<FileSystemFileHandle | null>(null);
   const [projectFileName, setProjectFileName] = useState<string | null>(null);
   const [isProjectAutoSaveEnabled, setIsProjectAutoSaveEnabled] = useState(false);
@@ -2055,16 +2062,37 @@ export function AppDoodlerStudio() {
     );
   }, [applyCropPreviewRect, pendingImageUpload]);
 
-  const handleOpenImportJsonModal = useCallback(() => {
-    setImportJsonError(null);
-    setParsedImportJson(null);
-    setImportJsonFileName(null);
-    setIsImportJsonModalOpen(true);
-  }, []);
-
   const handleImportJsonFilePick = useCallback(() => {
     importJsonInputRef.current?.click();
   }, []);
+
+  const applyImportedJson = useCallback((parsed: ParsedTranslationsImport, sourceFileName: string) => {
+    const importedTextByLanguage = cloneLanguageTextMap(parsed.translations);
+    const nextSlots = applyImportedTextToSlots(slots, importedTextByLanguage, { clearLabels: true });
+    const importedLanguageCodes = orderLanguageCodes(
+      Object.keys(importedTextByLanguage).filter((code) => ALL_LANGUAGE_CODES.includes(code)),
+    );
+
+    setSlots(nextSlots);
+    setImportJsonFileName(sourceFileName);
+    setImportJsonError(null);
+    setIsImportJsonModalOpen(false);
+
+    if (importedLanguageCodes.length > 0) {
+      setEnabledLanguages(importedLanguageCodes);
+      setActiveLanguageCode((previous) => (
+        importedLanguageCodes.includes(previous) ? previous : importedLanguageCodes[0] ?? DEFAULT_STUDIO_LANGUAGE
+      ));
+    } else {
+      toast.message('Imported text keys, but no supported App Store language codes were detected for preview chips.');
+    }
+
+    setEditingSlotId(null);
+    setSelectedLabelId(null);
+    toast.success(
+      `Imported ${parsed.languageCount} languages with ${parsed.keysPerLanguage} keys each from ${sourceFileName}.`,
+    );
+  }, [slots]);
 
   const handleImportJsonFileChange = useCallback(async (file: File | null) => {
     if (!file) return;
@@ -2074,20 +2102,18 @@ export function AppDoodlerStudio() {
       const parsed = parseTranslationsImportJson(text);
       if (!parsed.ok) {
         setImportJsonFileName(file.name);
-        setParsedImportJson(null);
         setImportJsonError(parsed.error);
+        setIsImportJsonModalOpen(true);
         return;
       }
 
-      setImportJsonFileName(file.name);
-      setImportJsonError(null);
-      setParsedImportJson(parsed.value);
+      applyImportedJson(parsed.value, file.name);
     } catch {
       setImportJsonFileName(file.name);
-      setParsedImportJson(null);
       setImportJsonError('Failed to read the JSON file. Please try another file.');
+      setIsImportJsonModalOpen(true);
     }
-  }, []);
+  }, [applyImportedJson]);
 
   const handleRefreshJsonFilePick = useCallback(() => {
     refreshImportJsonInputRef.current?.click();
@@ -2137,7 +2163,6 @@ export function AppDoodlerStudio() {
     setSlots(nextSlots);
     setImportJsonFileName(sourceFileName);
     setImportJsonError(null);
-    setParsedImportJson(parsed);
     if (importedLanguageCodes.length > 0) {
       setEnabledLanguages(nextEnabledLanguages);
       setActiveLanguageCode(nextActiveLanguageCode);
@@ -2181,41 +2206,6 @@ export function AppDoodlerStudio() {
       toast.error('Failed to read the JSON file. Please try another file.');
     }
   }, [applyRefreshedImportJson]);
-
-  const handleApplyImportJson = useCallback(() => {
-    if (!parsedImportJson) return;
-
-    const shouldReset = window.confirm(
-      'Apply this JSON now and replace all current text content and labels? This will clear previous edits before import.',
-    );
-    if (!shouldReset) return;
-
-    const importedTextByLanguage = Object.fromEntries(
-      Object.entries(parsedImportJson.translations).map(([code, values]) => [code, { ...values }]),
-    ) as Record<string, Record<string, string>>;
-
-    setSlots(createSlotsFromImport(importedTextByLanguage));
-
-    const importedLanguageCodes = orderLanguageCodes(
-      Object.keys(parsedImportJson.translations).filter((code) => ALL_LANGUAGE_CODES.includes(code)),
-    );
-    if (importedLanguageCodes.length > 0) {
-      setEnabledLanguages(importedLanguageCodes);
-      setActiveLanguageCode((previous) => (
-        importedLanguageCodes.includes(previous) ? previous : importedLanguageCodes[0] ?? DEFAULT_STUDIO_LANGUAGE
-      ));
-    } else {
-      toast.message('Imported text keys, but no supported App Store language codes were detected for preview chips.');
-    }
-
-    setEditingSlotId(null);
-    setSelectedLabelId(null);
-    toast.success(
-      `Imported ${parsedImportJson.languageCount} languages with ${parsedImportJson.keysPerLanguage} keys each.`,
-    );
-
-    setIsImportJsonModalOpen(false);
-  }, [parsedImportJson]);
 
   const handleDownloadSlot = useCallback(async (slot: TemplateSlot) => {
     const blob = await renderSlotBlob(slot, activeLanguageCode);
@@ -3179,7 +3169,7 @@ export function AppDoodlerStudio() {
                 <Button
                   variant="outline"
                   className="min-w-0 flex-1 gap-2 border-sky-200 bg-sky-50/60 text-slate-800"
-                  onClick={handleOpenImportJsonModal}
+                  onClick={handleImportJsonFilePick}
                   disabled={isLoadingPersistedState}
                 >
                   <FileJson className="h-4 w-4" />
@@ -3208,6 +3198,18 @@ export function AppDoodlerStudio() {
                   const file = input.files?.[0] ?? null;
                   input.value = '';
                   await handleRefreshJsonFileChange(file);
+                }}
+              />
+              <input
+                ref={importJsonInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={async (event) => {
+                  const input = event.currentTarget;
+                  const file = input.files?.[0] ?? null;
+                  input.value = '';
+                  await handleImportJsonFileChange(file);
                 }}
               />
 
@@ -3445,7 +3447,6 @@ export function AppDoodlerStudio() {
           setIsImportJsonModalOpen(open);
           if (!open) {
             setImportJsonError(null);
-            setParsedImportJson(null);
             setImportJsonFileName(null);
           }
         }}
@@ -3454,33 +3455,16 @@ export function AppDoodlerStudio() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-lg">
               <FileJson className="h-5 w-5 text-sky-700" />
-              Import Text JSON
+              JSON Import Error
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-4 text-sm text-slate-700">
             <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-              Upload a JSON file in direct language-map format (language codes at root, label keys inside each language).
+              Import expects direct language-map JSON: language codes at the root, label keys inside each language.
             </p>
 
-            <input
-              ref={importJsonInputRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              onChange={async (event) => {
-                const input = event.currentTarget;
-                const file = input.files?.[0] ?? null;
-                input.value = '';
-                await handleImportJsonFileChange(file);
-              }}
-            />
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" className="gap-2" onClick={handleImportJsonFilePick}>
-                <Upload className="h-4 w-4" />
-                Upload JSON
-              </Button>
-              <span className="text-xs text-slate-500">{importJsonFileName ?? 'No file selected'}</span>
+            <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+              File: {importJsonFileName ?? 'Unknown file'}
             </div>
 
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
@@ -3500,18 +3484,9 @@ export function AppDoodlerStudio() {
               </div>
             ) : null}
 
-            {parsedImportJson ? (
-              <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                Valid JSON. Languages: {parsedImportJson.languageCount}, keys per language: {parsedImportJson.keysPerLanguage}.
-              </div>
-            ) : null}
-
             <div className="flex items-center justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => setIsImportJsonModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="button" onClick={handleApplyImportJson} disabled={!parsedImportJson}>
-                Apply JSON
+                Close
               </Button>
             </div>
           </div>
